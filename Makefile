@@ -1,7 +1,7 @@
-tag=duckietown_pondcleaner
+tag=duckietown.sdk
 
-regular_packages=duckietown_pondcleaner
-test_packages=duckietown_pondcleaner_tests
+regular_packages=duckietown.sdk
+test_packages=duckietown_sdk_tests
 cover_packages=$(test_packages),$(regular_packages)
 
 
@@ -70,15 +70,6 @@ build-no-cache:
 
 test-docker: build
 	docker run -it $(tag) make test
-
-
-run:
-	mkdir -p out-docker
-	docker run -it -v $(PWD)/out-docker:/out $(tag) dt-pc-demo
-
-run-with-mounted-src:
-	mkdir -p out-docker
-	docker run -it -v $(PWD)/src:/duckietown_pondcleaner/src:ro -v $(PWD)/out-docker:/out $(tag) dt-pc-demo
 
 
 coverage-report:

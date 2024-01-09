@@ -22,4 +22,4 @@ prune out
 
 #@ add local below
 
-prune src/duckietown_pondcleaner_tests
+prune src/duckietown_sdk_tests

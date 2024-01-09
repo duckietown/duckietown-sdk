@@ -3,14 +3,15 @@ from setuptools import find_packages, setup
 # :==> Fill in your project data here
 # The package name is the name on PyPI
 # it is not the python module names.
-package_name = "dt-pondcleaner"
-library_webpage = "http://github.com/duckietown/template-library"
-maintainer = "Mack"
-maintainer_email = "admin@duckietown.com"
-short_description = "A short description"
+package_name = "duckietown-sdk"
+library_webpage = "http://github.com/duckietown/duckietown-sdk"
+maintainer = "Andrea F. Daniele"
+maintainer_email = "afdaniele@duckietown.com"
+short_description = "The Duckietown Software Development Kit (SDK)"
 full_description = """
-A longer description.
+The Duckietown Software Development Kit (SDK) for Python.
 """
+
 
 # Read version from the __init__ file
 def get_version_from_source(filename):
@@ -29,14 +30,7 @@ def get_version_from_source(filename):
     return version
 
 
-version = get_version_from_source("src/duckietown_pondcleaner/__init__.py")
-
-# read project dependencies
-# NO - dependencies.txt is for testing dependiences - EVERYTHING PINNED
-# The requirements here must be broad.
-# dependencies_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dependencies.txt')
-# with open(dependencies_file, 'rt') as fin:
-#     dependencies = list(filter(lambda line: not line.startswith('#'), fin.read().splitlines()))
+version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
 install_requires = []
 tests_require = []
@@ -55,9 +49,8 @@ description = """
     underline=underline,
 )
 
-console_scripts = [
-    "dt-pc-demo = duckietown_pondcleaner:dt_pc_demo",
-]
+console_scripts = []
+
 # setup package
 setup(
     name=package_name,
@@ -66,8 +59,7 @@ setup(
     url=library_webpage,
     tests_require=tests_require,
     install_requires=install_requires,
-    package_dir={"": "src"},
-    packages=find_packages("./src"),
+    packages=[f"duckietown.{p}" for p in find_packages('./src/duckietown')],
     long_description=description,
     version=version,
     entry_points={"console_scripts": console_scripts},

@@ -3,8 +3,5 @@ __version__ = "0.0.0"
 import logging
 
 logging.basicConfig()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("duckietown-sdk")
 logger.setLevel(logging.DEBUG)
-
-from .pondcleaner import *
-from .demo import *
