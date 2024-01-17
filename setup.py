@@ -32,7 +32,11 @@ def get_version_from_source(filename):
 
 version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
-install_requires = []
+install_requires = [
+    "dt-duckiematrix-protocols-ente>=0.1.8,<1",
+    "roslibpy>=1.6.0,<2",
+    "PyTurboJPEG>=1.7.3,<2",
+]
 tests_require = []
 
 # compile description
@@ -59,6 +63,7 @@ setup(
     url=library_webpage,
     tests_require=tests_require,
     install_requires=install_requires,
+    package_dir={"": "src"},
     packages=[f"duckietown.{p}" for p in find_packages('./src/duckietown')],
     long_description=description,
     version=version,
