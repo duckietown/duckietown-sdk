@@ -7,9 +7,6 @@ from dt_duckiematrix_protocols.robot import DB21M
 from dt_duckiematrix_protocols.robot.features.lights import LED, Lights
 from dt_duckiematrix_protocols.robot.features.sensors import SensorAbs
 
-# noinspection PyUnresolvedReferences
-from turbojpeg import TurboJPEG
-
 from ..base import GenericSubscriber, GenericPublisher, CameraDriver, TimeOfFlightDriver, \
     WheelEncoderDriver, LEDsDriver, MotorsDriver
 from ..duckiematrix import Duckiematrix
@@ -22,6 +19,8 @@ __all__ = [
     "DuckiematrixMotorsDriver",
     "DuckiematrixLEDsDriver"
 ]
+
+from ...utils.jpeg import JPEG
 
 
 class GenericDuckiematrixSubscriber(GenericSubscriber, ABC):
@@ -60,18 +59,13 @@ class GenericDuckiematrixPublisher(GenericPublisher):
 
 class DuckiematrixCameraDriver(CameraDriver, GenericDuckiematrixSubscriber):
 
-    def __init__(self, host: str, robot_name: str):
-        super(DuckiematrixCameraDriver, self).__init__(host, robot_name)
-        # JPEG decoder
-        self._jpeg_decoder = TurboJPEG()
-
     @property
     def _sensor(self) -> SensorAbs:
         return self._robot.camera
 
     def _unpack(self, msg) -> BGRImage:
         jpeg: JPEGImage = msg.as_uint8()
-        return self._jpeg_decoder.decode(jpeg)
+        return JPEG.decode(jpeg)
 
 
 class DuckiematrixTimeOfFlightDriver(TimeOfFlightDriver, GenericDuckiematrixSubscriber):

@@ -6,9 +6,6 @@ from typing import Optional, Any, Tuple, List
 
 from roslibpy import Message
 
-# noinspection PyUnresolvedReferences
-from turbojpeg import TurboJPEG
-
 from .base import ROS, RosTopic
 from ..base import GenericSubscriber, GenericPublisher, CameraDriver, TimeOfFlightDriver, \
     WheelEncoderDriver, LEDsDriver, MotorsDriver
@@ -23,6 +20,8 @@ __all__ = [
     "GenericROSPublisher",
     "GenericROSSubscriber"
 ]
+
+from ...utils.jpeg import JPEG
 
 
 class GenericROSSubscriber(GenericSubscriber, ABC):
@@ -119,8 +118,6 @@ class ROSCameraDriver(CameraDriver, GenericROSSubscriber):
         super(ROSCameraDriver, self).__init__(
             host, robot_name, "/camera_node/image/compressed", "sensor_msgs/CompressedImage", **kwargs
         )
-        # ---
-        self._jpeg_decoder = TurboJPEG()
 
     def _unpack(self, msg) -> BGRImage:
         if self._topic.compression == "cbor":
@@ -131,7 +128,7 @@ class ROSCameraDriver(CameraDriver, GenericROSSubscriber):
         else:
             raise ValueError(f"Compression '{self._topic.compression}' not supported")
         # ---
-        return self._jpeg_decoder.decode(jpeg)
+        return JPEG.decode(jpeg)
 
 
 class ROSTimeOfFlightDriver(TimeOfFlightDriver, GenericROSSubscriber):

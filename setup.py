@@ -1,3 +1,5 @@
+import sys
+
 from setuptools import find_packages, setup
 
 # :==> Fill in your project data here
@@ -35,9 +37,14 @@ version = get_version_from_source("src/duckietown/sdk/__init__.py")
 install_requires = [
     "dt-duckiematrix-protocols-ente>=0.1.8,<1",
     "roslibpy>=1.6.0,<2",
-    "PyTurboJPEG>=1.7.3,<2",
 ]
 tests_require = []
+
+# we require pillow on MacOS and PyTurboJPEG on Linux
+if sys.platform == "linux":
+    install_requires.append("PyTurboJPEG>=1.7.3,<2")
+elif sys.platform == "darwin":
+    install_requires.append("pillow")
 
 # compile description
 underline = "=" * (len(package_name) + len(short_description) + 2)
