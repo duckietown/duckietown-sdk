@@ -15,6 +15,7 @@ REAL_ROBOT_NAME: str = "db21j3"
 def _camera_cb(data: BGRImage):
     print(f"Received image of shape: {data.shape}")
 
+
 def _camera_async(robot: DB21J):
     robot.camera.attach(_camera_cb)
     robot.camera.start()
@@ -22,9 +23,11 @@ def _camera_async(robot: DB21J):
     print("Stopped.")
     robot.camera.stop()
 
+
 def simulated_camera_async():
     robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _camera_async(robot)
+
 
 def real_camera_async():
     robot: DB21J = DB21J(REAL_ROBOT_NAME)
@@ -42,15 +45,15 @@ def _camera_sync(robot: DB21J):
     print("Stopped.")
     robot.camera.stop()
 
+
 def simulated_camera_sync():
     robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _camera_sync(robot)
 
+
 def real_camera_sync():
     robot: DB21J = DB21J(REAL_ROBOT_NAME)
     _camera_sync(robot)
-
-
 
 
 # RANGE FINDER #########################################################################################################
@@ -63,6 +66,7 @@ def _range_finder_cb(data: Optional[float]):
         return
     print(f"Range: {data} meters.")
 
+
 def _range_finder_async(robot: DB21J):
     robot.range_finder.attach(_range_finder_cb)
     robot.range_finder.start()
@@ -70,9 +74,11 @@ def _range_finder_async(robot: DB21J):
     print("Stopped.")
     robot.range_finder.stop()
 
+
 def simulated_range_finder_async():
     robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _range_finder_async(robot)
+
 
 def real_range_finder_async():
     robot: DB21J = DB21J(REAL_ROBOT_NAME)
@@ -90,16 +96,17 @@ def _range_finder_sync(robot: DB21J):
     print("Stopped.")
     robot.range_finder.stop()
 
+
 def simulated_range_finder_sync():
     robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _range_finder_sync(robot)
+
 
 def real_range_finder_sync():
     robot: DB21J = DB21J(REAL_ROBOT_NAME)
     _range_finder_sync(robot)
 
 ########################################################################################################################
-
 
 
 if __name__ == '__main__':
