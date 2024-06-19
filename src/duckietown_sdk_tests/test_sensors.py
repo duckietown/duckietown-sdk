@@ -72,7 +72,7 @@ def _range_finder_cb(data: Optional[float]):
 def _range_finder_async(robot: DB21J):
     robot.range_finder.attach(_range_finder_cb)
     robot.range_finder.start()
-    time.sleep(2)
+    time.sleep(10)
     print("Stopped.")
     robot.range_finder.stop()
 

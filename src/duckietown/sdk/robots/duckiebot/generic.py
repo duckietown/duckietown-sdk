@@ -1,8 +1,8 @@
+from typing import Tuple, Optional
+
 from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver
-from ...middleware.duckiematrix.components import DuckiematrixCameraDriver, DuckiematrixTimeOfFlightDriver, \
-    DuckiematrixWheelEncoderDriver, DuckiematrixMotorsDriver, DuckiematrixLEDsDriver
-from ...middleware.ros.components import ROSCameraDriver, ROSTimeOfFlightDriver, ROSWheelEncoderDriver, \
-    ROSMotorsDriver, ROSLEDsDriver
+from ...middleware.dtps.components import DTPSCameraDriver, DTPSTimeOfFlightDriver, DTPSWheelEncoderDriver, \
+    DTPSMotorsDriver, DTPSLEDsDriver
 from ...types import CompoundComponent
 
 
