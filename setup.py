@@ -35,8 +35,7 @@ def get_version_from_source(filename):
 version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
 install_requires = [
-    "dt-duckiematrix-protocols-ente>=0.1.8,<1",
-    "roslibpy>=1.6.0,<2",
+    "duckietown-messages>=0.0.16,<0.1",
 ]
 tests_require = []
 
