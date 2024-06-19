@@ -2,7 +2,8 @@ from abc import abstractmethod, ABC
 from threading import Event
 from typing import Any, Callable, Set, TypeVar, Generic, Optional
 
-from ..types import Component, PWMSignal, LEDsPattern
+from duckietown_messages.actuators import CarLights
+from ..types import Component, PWMSignal
 
 Msg = Any
 
@@ -11,16 +12,17 @@ T = TypeVar('T')
 
 class GenericNetworkComponent(Component, ABC):
 
-    def __init__(self, host: str, robot_name: str):
+    def __init__(self, host: str, robot_name: str, path_prefix: Optional[str] = None):
         super(GenericNetworkComponent, self).__init__()
         self._robot_name: str = robot_name
         self._host: str = host
+        self._path_prefix: Optional[str] = path_prefix
 
 
 class GenericSubscriber(GenericNetworkComponent, Generic[T], ABC):
 
-    def __init__(self, host: str, robot_name: str):
-        super(GenericSubscriber, self).__init__(host, robot_name)
+    def __init__(self, host: str, robot_name: str, path_prefix: Optional[str] = None):
+        super(GenericSubscriber, self).__init__(host, robot_name, path_prefix=path_prefix)
         # ---
         # async behavior
         self._callbacks: Set[Callable[[Any], None]] = set()
@@ -98,7 +100,7 @@ class WheelEncoderDriver(GenericSubscriber, ABC):
 
 class LEDsDriver(GenericPublisher, ABC):
 
-    def set(self, pattern: LEDsPattern):
+    def set(self, pattern: CarLights):
         self.publish(pattern)
 
 

@@ -1,4 +1,3 @@
-import dataclasses
 from abc import abstractmethod
 from typing import Tuple, Dict, Union
 
@@ -88,24 +87,25 @@ class CompoundComponent(Component):
 
     def __init__(self, components: Dict[str, IComponent] = None):
         super(CompoundComponent, self).__init__()
-        self._components: Dict[str, IComponent] = components or {}
+        self._components: Dict[Tuple[str, str], IComponent] = components or {}
 
-    def add(self, name: str, component: IComponent):
-        self._components[name] = component
+    def add(self, kind: str, name: str, component: IComponent):
+        self._components[(kind, name)] = component
 
-    def remove(self, name: str):
-        self._components.pop(name, None)
+    def remove(self, kind: str, name: str):
+        self._components.pop((kind, name), None)
 
-    def contains(self, name: str):
-        return name in self._components
+    def contains(self, kind: str, name: str):
+        return (kind, name) in self._components
 
-    def __contains__(self, item):
+    def __contains__(self, kind: str, item):
         if isinstance(item, str):
-            return self.contains(item)
+            return self.contains(kind, item)
         elif isinstance(item, IComponent):
-            return self._components.values().__contains__(item)
+            # TODO: this looks wrong
+            return self._components.values().__contains__(kind, item)
         else:
-            return super(CompoundComponent, self).__contains__(item)
+            return super(CompoundComponent, self).__contains__(kind, item)
 
     def _start(self):
         for component in self._components.values():
@@ -118,11 +118,3 @@ class CompoundComponent(Component):
     def _reset(self):
         for component in self._components.values():
             component.reset()
-
-
-@dataclasses.dataclass
-class LEDsPattern:
-    front_left: RGBAColor
-    front_right: RGBAColor
-    rear_right: RGBAColor
-    rear_left: RGBAColor

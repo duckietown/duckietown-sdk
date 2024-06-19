@@ -6,77 +6,74 @@ from ...middleware.ros.components import ROSCameraDriver, ROSTimeOfFlightDriver,
 from ...types import CompoundComponent
 
 
+DEFAULT_ROBOT_SWITCHBOARD_PORT: int = 11511
+DEFAULT_DUCKIEMATRIX_PORT: int = 7501
+
+
 class GenericDuckiebot(CompoundComponent):
 
-    def __init__(self, name: str, *, host: str = None, simulated: bool = False):
+    def __init__(self, name: str, *, host: Optional[str] = None, simulated: bool = False, port: Optional[int] = None):
         super(GenericDuckiebot, self).__init__()
         self._name: str = name
         self._host: str = host or ("127.0.0.1" if simulated else f"{name}.local")
+        self._port: int = port or (DEFAULT_ROBOT_SWITCHBOARD_PORT if not simulated else DEFAULT_DUCKIEMATRIX_PORT)
         self._simulated: bool = simulated
 
-    @property
-    def _camera(self) -> CameraDriver:
-        if "camera" not in self._components:
+    def _camera(self, name: str) -> CameraDriver:
+        key: Tuple[str, str] = ("camera", name)
+        if key not in self._components:
+            args: dict = {}
             if self._simulated:
-                self._components["camera"] = DuckiematrixCameraDriver(self._host, self._name)
-            else:
-                self._components["camera"] = ROSCameraDriver(self._host, self._name)
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSCameraDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
-        return self._components["camera"]
+        return self._components[key]
 
-    @property
-    def _range_finder(self) -> TimeOfFlightDriver:
-        if "range_finder" not in self._components:
+    def _range_finder(self, name: str) -> TimeOfFlightDriver:
+        key: Tuple[str, str] = ("range_finder", name)
+        if key not in self._components:
+            args: dict = {}
             if self._simulated:
-                self._components["range_finder"] = DuckiematrixTimeOfFlightDriver(self._host, self._name)
-            else:
-                self._components["range_finder"] = ROSTimeOfFlightDriver(self._host, self._name)
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSTimeOfFlightDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
-        return self._components["range_finder"]
+        return self._components[key]
 
-    @property
-    def _left_wheel_encoder(self) -> WheelEncoderDriver:
-        if "left_wheel_encoder" not in self._components:
+    def _wheel_encoder(self, name: str) -> WheelEncoderDriver:
+        key: Tuple[str, str] = ("wheel_encoder", name)
+        if key not in self._components:
+            args: dict = {}
             if self._simulated:
-                self._components["left_wheel_encoder"] = DuckiematrixWheelEncoderDriver(
-                    self._host, self._name, "left")
-            else:
-                self._components["left_wheel_encoder"] = ROSWheelEncoderDriver(
-                    self._host, self._name, "left")
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSWheelEncoderDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
-        return self._components["left_wheel_encoder"]
+        return self._components[key]
 
-    @property
-    def _right_wheel_encoder(self) -> WheelEncoderDriver:
-        if "right_wheel_encoder" not in self._components:
+    def _lights(self, name: str) -> LEDsDriver:
+        key: Tuple[str, str] = ("lights", name)
+        if key not in self._components:
+            args: dict = {}
             if self._simulated:
-                self._components["right_wheel_encoder"] = DuckiematrixWheelEncoderDriver(
-                    self._host, self._name, "right")
-            else:
-                self._components["right_wheel_encoder"] = ROSWheelEncoderDriver(
-                    self._host, self._name, "right")
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSLEDsDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
-        return self._components["right_wheel_encoder"]
+        return self._components[key]
 
-    @property
-    def _lights(self) -> LEDsDriver:
-        if "lights" not in self._components:
+    def _motors(self, name: str) -> MotorsDriver:
+        key: Tuple[str, str] = ("motors", name)
+        if key not in self._components:
+            args: dict = {}
             if self._simulated:
-                self._components["lights"] = DuckiematrixLEDsDriver(self._host, self._name)
-            else:
-                self._components["lights"] = ROSLEDsDriver(self._host, self._name)
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSMotorsDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
-        return self._components["lights"]
-
-    @property
-    def _motors(self) -> MotorsDriver:
-        if "motors" not in self._components:
-            if self._simulated:
-                self._components["motors"] = DuckiematrixMotorsDriver(self._host, self._name)
-            else:
-                self._components["motors"] = ROSMotorsDriver(self._host, self._name)
-        # noinspection PyTypeChecker
-        return self._components["motors"]
+        return self._components[key]
 
     def __repr__(self):
-        return f"GenericDuckiebot(name='{self._name}', host='{self._host}', simulated={self._simulated})"
+        return (f"GenericDuckiebot(name='{self._name}', host='{self._host}', port='{self._port}', "
+                f"simulated={self._simulated})")
