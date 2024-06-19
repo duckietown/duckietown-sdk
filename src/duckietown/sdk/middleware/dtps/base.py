@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import traceback
 from asyncio import Future
 from typing import Dict, Tuple, Optional, Any, Coroutine, List
 
@@ -65,6 +66,15 @@ class DTPSConnector:
         return self._context
 
     def arun(self, coro: Coroutine, block: bool = False) -> Optional[Any]:
-        future: Future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future: Future = asyncio.run_coroutine_threadsafe(self._task(coro), self._loop)
         if block:
             return future.result()
+
+    @staticmethod
+    async def _task(coro: Coroutine):
+        # noinspection PyBroadException
+        try:
+            await coro
+        except Exception:
+            print(f"Exception in task: {coro.__name__}")
+            traceback.print_exc()

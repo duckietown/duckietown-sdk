@@ -3,7 +3,7 @@ from threading import Event
 from typing import Any, Callable, Set, TypeVar, Generic, Optional
 
 from duckietown_messages.actuators import CarLights
-from ..types import Component, PWMSignal
+from ..types import Component, PWMSignal, BGRImage
 
 Msg = Any
 
@@ -86,7 +86,7 @@ class GenericPublisher(GenericNetworkComponent, ABC):
         pass
 
 
-class CameraDriver(GenericSubscriber, ABC):
+class CameraDriver(GenericSubscriber[BGRImage], ABC):
     pass
 
 
@@ -107,4 +107,6 @@ class LEDsDriver(GenericPublisher, ABC):
 class MotorsDriver(GenericPublisher, ABC):
 
     def set_pwm(self, left: PWMSignal, right: PWMSignal):
+        if 1 < left < 0 or 1 < right < 0:
+            raise ValueError("PWM signals must be in the range [0, 1].")
         self.publish((left, right))

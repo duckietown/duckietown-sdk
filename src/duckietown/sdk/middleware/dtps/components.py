@@ -1,18 +1,18 @@
 import math
 import time
 from abc import ABC
-from queue import Queue
-from typing import Optional, Any, Tuple, List, Union
+from asyncio import Queue, QueueFull
+from typing import Optional, Any, Tuple, Union
 
 from dtps import DTPSContext, SubscriptionInterface
 from dtps_http import RawData
-from duckietown_messages.actuators import CarLights
+from duckietown_messages.actuators import CarLights, DifferentialPWM
 from duckietown_messages.base import BaseMessage
 from duckietown_messages.colors import RGBA
 from .base import DTPS, DTPSConnector
 from ..base import GenericSubscriber, GenericPublisher, CameraDriver, TimeOfFlightDriver, \
     WheelEncoderDriver, LEDsDriver, MotorsDriver
-from ...types import JPEGImage, BGRImage, PWMSignal, RGBAColor, Range
+from ...types import JPEGImage, BGRImage, PWMSignal, Range
 from ...utils.jpeg import JPEG
 
 __all__ = [
@@ -84,7 +84,7 @@ class GenericDTPSPublisher(GenericPublisher, ABC):
 
         async with queue.publisher_context() as publisher:
             while True:
-                msg: Union[dict, BaseMessage] = self._queue.get()
+                msg: Union[dict, BaseMessage] = await self._queue.get()
                 rd: RawData
                 if isinstance(msg, BaseMessage):
                     rd = msg.to_rawdata()
@@ -98,11 +98,20 @@ class GenericDTPSPublisher(GenericPublisher, ABC):
 
     def _publish(self, data: Any):
         if not self.is_started:
+            #TODO: too silent
             return
         # format message
         msg: dict = self._pack(data) if not self._override_msg else self._override_msg
         # publish message
-        self._queue.put(msg)
+
+        #TODO: this should be async all the way
+        # self._connector.arun(self._queue.put_nowait(msg))
+
+        try:
+            self._queue.put_nowait(msg)
+        except QueueFull:
+            # print("Queue is full, dropping message.")
+            pass
 
 
 class DTPSCameraDriver(CameraDriver, GenericDTPSSubscriber):
@@ -190,11 +199,8 @@ class DTPSMotorsDriver(MotorsDriver, GenericDTPSPublisher):
     def publish(self, data: Tuple[PWMSignal, PWMSignal]):
         self._publish(data)
 
-    def _pack(self, data: Tuple[PWMSignal, PWMSignal]) -> dict:
-        return {
-            "left": data[0],
-            "right": data[1],
-        }
+    def _pack(self, data: Tuple[PWMSignal, PWMSignal]) -> DifferentialPWM:
+        return DifferentialPWM(left=data[0], right=data[1])
 
     def _stop(self):
         self._override_msg = self._pack((self.OFF, self.OFF))
