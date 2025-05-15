@@ -164,7 +164,7 @@ class DTPSWheelEncoderDriver(WheelEncoderDriver, GenericDTPSSubscriber):
 class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
     def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
         super(DTPSMapLayerDriver, self).__init__(
-            host, port, robot_name, (sensor_name), **kwargs
+            host, port, robot_name, sensor_name, **kwargs
         )
 
     def _unpack(self, msg) -> dict:
