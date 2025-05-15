@@ -168,6 +168,7 @@ class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
         )
 
     def _unpack(self, msg) -> dict:
+        print(msg)
         return msg["data"]
 
 class DTPSLEDsDriver(LEDsDriver, GenericDTPSPublisher):
