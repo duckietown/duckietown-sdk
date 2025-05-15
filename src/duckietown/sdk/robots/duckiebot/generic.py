@@ -1,8 +1,8 @@
 from typing import Tuple, Optional
 
-from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver
+from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver, MapLayerDriver
 from ...middleware.dtps.components import DTPSCameraDriver, DTPSTimeOfFlightDriver, DTPSWheelEncoderDriver, \
-    DTPSMotorsDriver, DTPSLEDsDriver
+    DTPSMotorsDriver, DTPSLEDsDriver, DTPSMapLayerDriver
 from ...types import CompoundComponent
 
 
@@ -27,6 +27,17 @@ class GenericDuckiebot(CompoundComponent):
                 args["path_prefix"] = ("robot",)
             # ---
             self._components[key] = DTPSCameraDriver(self._host, self._port, self._name, name, **args)
+        # noinspection PyTypeChecker
+        return self._components[key]
+    
+    def _map_layer(self, name: str) -> MapLayerDriver:
+        key: Tuple[str, str] = ("map_layer", name)
+        if key not in self._components:
+            args: dict = {}
+            if self._simulated:
+                args["path_prefix"] = ("layer",)
+            # ---
+            self._components[key] = DTPSMapLayerDriver(self._host, self._port, "layer", name, **args)
         # noinspection PyTypeChecker
         return self._components[key]
 

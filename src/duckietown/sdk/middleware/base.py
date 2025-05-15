@@ -98,6 +98,10 @@ class WheelEncoderDriver(GenericSubscriber, ABC):
     pass
 
 
+class MapLayerDriver(GenericSubscriber, ABC):
+    pass
+
+
 class LEDsDriver(GenericPublisher, ABC):
 
     def set(self, pattern: CarLights):

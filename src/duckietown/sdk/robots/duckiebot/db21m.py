@@ -3,7 +3,8 @@ from duckietown.sdk.middleware.base import \
     TimeOfFlightDriver, \
     CameraDriver, \
     MotorsDriver, \
-    LEDsDriver
+    LEDsDriver, \
+    MapLayerDriver
 
 from .generic import GenericDuckiebot
 
@@ -13,6 +14,10 @@ class DB21M(GenericDuckiebot):
     @property
     def camera(self) -> CameraDriver:
         return self._camera("front_center")
+    
+    @property
+    def map(self) -> MapLayerDriver:
+        return self._map_layer("tiles")
 
     @property
     def range_finder(self) -> TimeOfFlightDriver:

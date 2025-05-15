@@ -11,7 +11,7 @@ from duckietown_messages.base import BaseMessage
 from duckietown_messages.colors import RGBA
 from .base import DTPS, DTPSConnector
 from ..base import GenericSubscriber, GenericPublisher, CameraDriver, TimeOfFlightDriver, \
-    WheelEncoderDriver, LEDsDriver, MotorsDriver
+    WheelEncoderDriver, LEDsDriver, MotorsDriver, MapLayerDriver
 from ...types import JPEGImage, BGRImage, PWMSignal, Range
 from ...utils.jpeg import JPEG
 
@@ -21,6 +21,7 @@ __all__ = [
     "DTPSWheelEncoderDriver",
     "DTPSMotorsDriver",
     "DTPSLEDsDriver",
+    "DTPSMapLayerDriver",
     "GenericDTPSPublisher",
     "GenericDTPSSubscriber"
 ]
@@ -158,7 +159,16 @@ class DTPSWheelEncoderDriver(WheelEncoderDriver, GenericDTPSSubscriber):
         rotations: float = ticks / self.resolution
         rads: float = rotations * 2 * math.pi
         return rads
+    
 
+class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
+    def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
+        super(DTPSMapLayerDriver, self).__init__(
+            host, port, robot_name, ("sensor", "map", sensor_name, "map"), **kwargs
+        )
+
+    def _unpack(self, msg) -> dict:
+        return msg["data"]
 
 class DTPSLEDsDriver(LEDsDriver, GenericDTPSPublisher):
     OFF: RGBA = RGBA(r=0, g=0, b=0, a=0)
