@@ -37,7 +37,7 @@ class GenericDuckiebot(CompoundComponent):
             if self._simulated:
                 args["path_prefix"] = ("layer",)
             # ---
-            self._components[key] = DTPSMapLayerDriver(self._host, self._port, "layer", name, **args)
+            self._components[key] = DTPSMapLayerDriver(self._host, self._port, "", name, **args)
         # noinspection PyTypeChecker
         return self._components[key]
 
