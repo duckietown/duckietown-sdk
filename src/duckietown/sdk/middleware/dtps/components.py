@@ -168,8 +168,7 @@ class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
         )
 
     def _unpack(self, msg) -> dict:
-        print(msg)
-        return msg["data"]
+        return msg["content"]
 
 class DTPSLEDsDriver(LEDsDriver, GenericDTPSPublisher):
     OFF: RGBA = RGBA(r=0, g=0, b=0, a=0)
