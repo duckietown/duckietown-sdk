@@ -1,8 +1,8 @@
 from typing import Tuple, Optional
 
-from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver, MapLayerDriver
+from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver, MapLayerDriver, PoseDriver, DeltaTDriver, ResetFlagDriver
 from ...middleware.dtps.components import DTPSCameraDriver, DTPSTimeOfFlightDriver, DTPSWheelEncoderDriver, \
-    DTPSMotorsDriver, DTPSLEDsDriver, DTPSMapLayerDriver
+    DTPSMotorsDriver, DTPSLEDsDriver, DTPSMapLayerDriver, DTPSPoseDriver, DTPSDeltaTDriver, DTPSResetFlagDriver
 from ...types import CompoundComponent
 
 
@@ -35,9 +35,32 @@ class GenericDuckiebot(CompoundComponent):
         if key not in self._components:
             args: dict = {}
             if self._simulated:
-                args["path_prefix"] = ("layer",)
+                args["path_prefix"] = ()
             # ---
             self._components[key] = DTPSMapLayerDriver(self._host, self._port, "", name, **args)
+        # noinspection PyTypeChecker
+        return self._components[key]
+    
+    def _pose(self, name: str) -> PoseDriver:
+        key: Tuple[str, str] = ("pose", name)
+        if key not in self._components:
+            args: dict = {}
+            if self._simulated:
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSPoseDriver(self._host, self._port, self._name, name, **args)
+        # noinspection PyTypeChecker
+        return self._components[key]
+
+
+    def _delta_t(self, name: str) -> DeltaTDriver:
+        key: Tuple[str, str] = ("delta_t", name)
+        if key not in self._components:
+            args: dict = {}
+            if self._simulated:
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSDeltaTDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
         return self._components[key]
 
@@ -82,6 +105,17 @@ class GenericDuckiebot(CompoundComponent):
                 args["path_prefix"] = ("robot",)
             # ---
             self._components[key] = DTPSMotorsDriver(self._host, self._port, self._name, name, **args)
+        # noinspection PyTypeChecker
+        return self._components[key]
+    
+    def _reset_flag(self, name: str) -> ResetFlagDriver:
+        key: Tuple[str, str] = ("reset_flag", name)
+        if key not in self._components:
+            args: dict = {}
+            if self._simulated:
+                args["path_prefix"] = ("robot",)
+            # ---
+            self._components[key] = DTPSResetFlagDriver(self._host, self._port, self._name, name, **args)
         # noinspection PyTypeChecker
         return self._components[key]
 

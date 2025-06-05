@@ -8,10 +8,11 @@ from dtps import DTPSContext, SubscriptionInterface
 from dtps_http import RawData
 from duckietown_messages.actuators import CarLights, DifferentialPWM
 from duckietown_messages.base import BaseMessage
+from duckietown_messages.standard.boolean import Boolean
 from duckietown_messages.colors import RGBA
 from .base import DTPS, DTPSConnector
 from ..base import GenericSubscriber, GenericPublisher, CameraDriver, TimeOfFlightDriver, \
-    WheelEncoderDriver, LEDsDriver, MotorsDriver, MapLayerDriver
+    WheelEncoderDriver, LEDsDriver, MotorsDriver, MapLayerDriver, PoseDriver, DeltaTDriver, ResetFlagDriver
 from ...types import JPEGImage, BGRImage, PWMSignal, Range
 from ...utils.jpeg import JPEG
 
@@ -22,9 +23,20 @@ __all__ = [
     "DTPSMotorsDriver",
     "DTPSLEDsDriver",
     "DTPSMapLayerDriver",
+    "DTPSPoseDriver",
+    "DTPSDeltaTDriver",
     "GenericDTPSPublisher",
     "GenericDTPSSubscriber"
 ]
+
+import dataclasses
+from pydantic import Field
+
+
+
+@dataclasses.dataclass
+class ResetFlagMessage(BaseMessage):
+    reset: bool = Field(default=False)
 
 
 class GenericDTPSSubscriber(GenericSubscriber, ABC):
@@ -164,11 +176,31 @@ class DTPSWheelEncoderDriver(WheelEncoderDriver, GenericDTPSSubscriber):
 class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
     def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
         super(DTPSMapLayerDriver, self).__init__(
-            host, port, robot_name, ("layer",sensor_name), **kwargs
+            host, port, robot_name, ("map", sensor_name), **kwargs
         )
 
     def _unpack(self, msg) -> dict:
-        return msg["content"]
+        return msg
+    
+    
+class DTPSPoseDriver(PoseDriver, GenericDTPSSubscriber):
+    def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
+        super(DTPSPoseDriver, self).__init__(
+            host, port, robot_name, ("pose", sensor_name), **kwargs
+        )
+
+    def _unpack(self, msg) -> dict:
+        return msg
+
+class DTPSDeltaTDriver(DeltaTDriver, GenericDTPSSubscriber):
+    def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
+        super(DTPSDeltaTDriver, self).__init__(
+            host, port, robot_name, ("sensor", "delta_t"), **kwargs
+        )
+
+    def _unpack(self, msg) -> float:
+        return msg["data"]
+
 
 class DTPSLEDsDriver(LEDsDriver, GenericDTPSPublisher):
     OFF: RGBA = RGBA(r=0, g=0, b=0, a=0)
@@ -220,3 +252,18 @@ class DTPSMotorsDriver(MotorsDriver, GenericDTPSPublisher):
             time.sleep(1. / 60.)
         # ---
         super(DTPSMotorsDriver, self)._stop()
+
+
+class DTPSResetFlagDriver(ResetFlagDriver, GenericDTPSPublisher):
+    """DTPS implementation of the reset flag driver."""
+
+    def __init__(self, host: str, port: int, robot_name: str, actuator_name: str, **kwargs):
+        super(DTPSResetFlagDriver, self).__init__(
+            host, port, robot_name, ("actuator", "reset", actuator_name, "flag"), **kwargs
+        )
+
+    def publish(self, data: bool):
+        self._publish(data)
+
+    def _pack(self, data: bool) -> Boolean:
+        return Boolean(data=data)
