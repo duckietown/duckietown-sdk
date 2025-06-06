@@ -98,6 +98,16 @@ class WheelEncoderDriver(GenericSubscriber, ABC):
     pass
 
 
+class MapLayerDriver(GenericSubscriber, ABC):
+    pass
+
+
+class PoseDriver(GenericSubscriber, ABC):
+    pass
+
+class DeltaTDriver(GenericSubscriber, ABC):
+    pass
+
 class LEDsDriver(GenericPublisher, ABC):
 
     def set(self, pattern: CarLights):
@@ -110,3 +120,15 @@ class MotorsDriver(GenericPublisher, ABC):
         if 1 < left < 0 or 1 < right < 0:
             raise ValueError("PWM signals must be in the range [0, 1].")
         self.publish((left, right))
+
+
+class ResetFlagDriver(GenericPublisher, ABC):
+    """Driver for sending reset flag commands to the robot."""
+
+    def set_reset(self, reset: bool):
+        """Set the reset flag.
+        
+        Args:
+            reset: True to reset the robot's state, False otherwise.
+        """
+        self.publish(reset)
