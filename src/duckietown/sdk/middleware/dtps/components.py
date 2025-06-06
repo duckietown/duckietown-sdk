@@ -186,7 +186,7 @@ class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
 class DTPSPoseDriver(PoseDriver, GenericDTPSSubscriber):
     def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
         super(DTPSPoseDriver, self).__init__(
-            host, port, robot_name, ("pose", sensor_name), **kwargs
+            host, port, robot_name, ("pose",), **kwargs
         )
 
     def _unpack(self, msg) -> dict:
@@ -235,7 +235,7 @@ class DTPSMotorsDriver(MotorsDriver, GenericDTPSPublisher):
 
     def __init__(self, host: str, port: int, robot_name: str, actuator_name: str, **kwargs):
         super(DTPSMotorsDriver, self).__init__(
-            host, port, robot_name, ("actuator", "wheels", actuator_name, "pwm"), **kwargs
+            host, port, robot_name, ("actuator", "wheels", actuator_name, "pwm_filtered"), **kwargs
         )
 
     def publish(self, data: Tuple[PWMSignal, PWMSignal]):
