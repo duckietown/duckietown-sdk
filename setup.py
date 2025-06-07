@@ -72,6 +72,7 @@ setup(
     package_dir={"": "src"},
     packages=[f"duckietown.{p}" for p in find_packages('./src/duckietown')],
     long_description=description,
+    long_description_content_type='text/markdown',
     version=version,
     entry_points={"console_scripts": console_scripts},
 )
