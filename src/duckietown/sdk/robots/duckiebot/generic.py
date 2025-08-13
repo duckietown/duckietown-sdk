@@ -6,7 +6,7 @@ from ...middleware.dtps.components import DTPSCameraDriver, DTPSTimeOfFlightDriv
 from ...types import CompoundComponent
 
 
-DEFAULT_ROBOT_SWITCHBOARD_PORT: int = 11511
+DEFAULT_ROBOT_SWITCHBOARD_PORT: int = 11911
 DEFAULT_DUCKIEMATRIX_PORT: int = 7501
 
 
