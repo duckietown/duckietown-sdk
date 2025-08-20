@@ -186,7 +186,7 @@ class DTPSMapLayerDriver(MapLayerDriver, GenericDTPSSubscriber):
 class DTPSPoseDriver(PoseDriver, GenericDTPSSubscriber):
     def __init__(self, host: str, port: int, robot_name: str, sensor_name: str, **kwargs):
         super(DTPSPoseDriver, self).__init__(
-            host, port, robot_name, ("pose",), **kwargs
+            host, port, robot_name, ("state", "pose"), **kwargs
         )
 
     def _unpack(self, msg) -> dict:
@@ -259,7 +259,7 @@ class DTPSResetFlagDriver(ResetFlagDriver, GenericDTPSPublisher):
 
     def __init__(self, host: str, port: int, robot_name: str, actuator_name: str, **kwargs):
         super(DTPSResetFlagDriver, self).__init__(
-            host, port, robot_name, ("actuator", "reset", actuator_name, "flag"), **kwargs
+            host, port, robot_name, ("state", "reset"), **kwargs
         )
 
     def publish(self, data: bool):
