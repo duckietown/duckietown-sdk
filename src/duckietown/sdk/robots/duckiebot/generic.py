@@ -109,7 +109,7 @@ class GenericDuckiebot(CompoundComponent):
         return self._components[key]
     
     def _reset_flag(self, name: str) -> ResetFlagDriver:
-        key: Tuple[str, str] = ("reset_flag", name)
+        key: Tuple[str, str] = ("reset", name)
         if key not in self._components:
             args: dict = {}
             if self._simulated:

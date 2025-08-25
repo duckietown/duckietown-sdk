@@ -6,6 +6,7 @@ from duckietown.sdk.middleware.base import \
     LEDsDriver, \
     MapLayerDriver, \
     DeltaTDriver, \
+    PoseDriver, \
     ResetFlagDriver
 
 from .generic import GenericDuckiebot
@@ -18,8 +19,8 @@ class DB21M(GenericDuckiebot):
         return self._camera("front_center")
     
     @property
-    def pose(self) -> CameraDriver:
-        return self._pose("pose")
+    def pose(self) -> PoseDriver:
+        return self._pose("")
     
     @property
     def delta_t(self) -> DeltaTDriver:
@@ -60,4 +61,4 @@ class DB21M(GenericDuckiebot):
 
     @property
     def reset_flag(self) -> ResetFlagDriver:
-        return self._reset_flag("base")
+        return self._reset_flag("")
