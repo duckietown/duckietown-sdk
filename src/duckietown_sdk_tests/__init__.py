@@ -1,3 +1,5 @@
+"""Duckietown SDK tests."""
+
 import logging
 
 logging.basicConfig()
