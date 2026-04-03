@@ -36,6 +36,7 @@ version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
 install_requires = [
     "duckietown-messages>=0.0.16,<0.1",
+    "cbor2",
 ]
 tests_require = []
 

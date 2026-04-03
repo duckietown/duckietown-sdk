@@ -1,24 +1,29 @@
+"""Test sensors."""
+
 import time
-from typing import Optional
 
-from duckietown.sdk.middleware.base import WheelEncoderDriver
+import numpy as np
 
+from duckietown.sdk.middleware.components import WheelEncoder
 from duckietown.sdk.robots.duckiebot import DB21J
-from duckietown.sdk.types import BGRImage
 
-SIMULATED_ROBOT_NAME: str = "map_0/vehicle_0"
-REAL_ROBOT_NAME: str = "db21j3"
+SIMULATED_ROBOT_NAME = "map_0/vehicle_0"
+REAL_ROBOT_NAME = "db21j3"
 
 
-# CAMERA ###############################################################################################################
+# CAMERA ###############################################################
 
-# ---- Async -----------------------------------------------------------------------------------------------------------
+# ---- Async -----------------------------------------------------------
 
-def _camera_cb(data: BGRImage):
+
+def _camera_cb(data: np.ndarray | None) -> None:
+    if data is None:
+        print("No image received.")
+        return
     print(f"Received image of shape: {data.shape}")
 
 
-def _camera_async(robot: DB21J):
+def _camera_async(robot: DB21J) -> None:
     robot.camera.attach(_camera_cb)
     robot.camera.start()
     time.sleep(2)
@@ -26,98 +31,115 @@ def _camera_async(robot: DB21J):
     robot.camera.stop()
 
 
-def simulated_camera_async():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_camera_async() -> None:
+    """Measure the simulated camera asynchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _camera_async(robot)
 
 
-def real_camera_async():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_camera_async() -> None:
+    """Measure the real camera asynchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _camera_async(robot)
 
 
-# ---- Sync ------------------------------------------------------------------------------------------------------------
+# ---- Sync ------------------------------------------------------------
 
-def _camera_sync(robot: DB21J):
+
+def _camera_sync(robot: DB21J) -> None:
+    duration = 2
     robot.camera.start()
-    stime: float = time.time()
-    while time.time() - stime < 2:
-        data = robot.camera.capture(block=True)
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        data = robot.camera.get(block=True)
         _camera_cb(data)
     print("Stopped.")
     robot.camera.stop()
 
 
-def simulated_camera_sync():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_camera_sync() -> None:
+    """Measure the simulated camera synchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _camera_sync(robot)
 
 
-def real_camera_sync():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_camera_sync() -> None:
+    """Measure the real camera synchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _camera_sync(robot)
 
 
-# RANGE FINDER #########################################################################################################
+# TIME-OF-FLIGHT SENSOR ################################################
 
-# ---- Async -----------------------------------------------------------------------------------------------------------
+# ---- Async -----------------------------------------------------------
 
-def _range_finder_cb(data: Optional[float]):
+
+def _time_of_flight_cb(data: float | None) -> None:
     if data is None:
-        print("Out of range.")
+        print("No time-of-flight data received.")
         return
     print(f"Range: {data} meters.")
 
 
-def _range_finder_async(robot: DB21J):
-    robot.range_finder.attach(_range_finder_cb)
-    robot.range_finder.start()
+def _time_of_flight_async(robot: DB21J) -> None:
+    robot.time_of_flight_sensor.attach(_time_of_flight_cb)
+    robot.time_of_flight_sensor.start()
     time.sleep(10)
     print("Stopped.")
-    robot.range_finder.stop()
+    robot.time_of_flight_sensor.stop()
 
 
-def simulated_range_finder_async():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
-    _range_finder_async(robot)
+def simulated_time_of_flight_async() -> None:
+    """Measure the time-of-flight sensor asynchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+    _time_of_flight_async(robot)
 
 
-def real_range_finder_async():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
-    _range_finder_async(robot)
+def real_time_of_flight_async() -> None:
+    """Measure the time-of-flight sensor asynchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
+    _time_of_flight_async(robot)
 
 
-# ---- Sync ------------------------------------------------------------------------------------------------------------
+# ---- Sync ------------------------------------------------------------
 
-def _range_finder_sync(robot: DB21J):
-    robot.range_finder.start()
-    stime: float = time.time()
-    while time.time() - stime < 2:
-        data = robot.range_finder.capture(block=True)
-        _range_finder_cb(data)
+
+def _time_of_flight_sync(robot: DB21J) -> None:
+    duration = 2
+    robot.time_of_flight_sensor.start()
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        data = robot.time_of_flight_sensor.get(block=True)
+        _time_of_flight_cb(data)
     print("Stopped.")
-    robot.range_finder.stop()
+    robot.time_of_flight_sensor.stop()
 
 
-def simulated_range_finder_sync():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
-    _range_finder_sync(robot)
+def simulated_time_of_flight_sync() -> None:
+    """Measure the time-of-flight sensor synchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+    _time_of_flight_sync(robot)
 
 
-def real_range_finder_sync():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
-    _range_finder_sync(robot)
+def real_time_of_flight_sync() -> None:
+    """Measure the right wheel encoder synchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
+    _time_of_flight_sync(robot)
 
 
-# WHEEL ENCODERS #########################################################################################################
+# WHEEL ENCODERS #######################################################
 
-# ---- Async -----------------------------------------------------------------------------------------------------------
+# ---- Async -----------------------------------------------------------
 
-def _wheel_encoder_cb(data: int):
+
+def _wheel_encoder_cb(data: int | None) -> None:
+    if data is None:
+        print("No wheel encoder data received.")
+        return
     print(f"Ticks: {data}")
 
 
-def _wheel_encoder_async(wheel_encoder: WheelEncoderDriver):
+def _wheel_encoder_async(wheel_encoder: WheelEncoder) -> None:
     wheel_encoder.attach(_wheel_encoder_cb)
     wheel_encoder.start()
     time.sleep(10)
@@ -125,61 +147,132 @@ def _wheel_encoder_async(wheel_encoder: WheelEncoderDriver):
     wheel_encoder.stop()
 
 
-def simulated_left_wheel_encoder_async():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_left_wheel_encoder_async() -> None:
+    """Measure the left wheel encoder asynchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _wheel_encoder_async(robot.left_wheel_encoder)
 
 
-def real_left_wheel_encoder_async():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_left_wheel_encoder_async() -> None:
+    """Measure the left wheel encoder asynchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _wheel_encoder_async(robot.left_wheel_encoder)
 
 
-def simulated_right_wheel_encoder_async():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_right_wheel_encoder_async() -> None:
+    """Measure the right wheel encoder asynchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _wheel_encoder_async(robot.right_wheel_encoder)
 
 
-def real_right_wheel_encoder_async():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_right_wheel_encoder_async() -> None:
+    """Measure the right wheel encoder asynchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _wheel_encoder_async(robot.right_wheel_encoder)
 
 
-# ---- Sync ------------------------------------------------------------------------------------------------------------
+# ---- Sync ------------------------------------------------------------
 
-def _wheel_encoder_sync(wheel_encoder: WheelEncoderDriver):
+
+def _wheel_encoder_sync(wheel_encoder: WheelEncoder) -> None:
+    duration = 2
     wheel_encoder.start()
-    stime: float = time.time()
-    while time.time() - stime < 2:
-        data = wheel_encoder.capture(block=True)
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        data = wheel_encoder.get(block=True)
         _wheel_encoder_cb(data)
     print("Stopped.")
     wheel_encoder.stop()
 
 
-def simulated_left_wheel_encoder_sync():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_left_wheel_encoder_sync() -> None:
+    """Measure the left wheel encoder synchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _wheel_encoder_sync(robot.left_wheel_encoder)
 
 
-def real_left_wheel_encoder_sync():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_left_wheel_encoder_sync() -> None:
+    """Measure the real left wheel encoder synchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _wheel_encoder_sync(robot.left_wheel_encoder)
 
 
-def simulated_right_wheel_encoder_sync():
-    robot: DB21J = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+def simulated_right_wheel_encoder_sync() -> None:
+    """Measure the right wheel encoder synchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
     _wheel_encoder_sync(robot.right_wheel_encoder)
 
 
-def real_right_wheel_encoder_sync():
-    robot: DB21J = DB21J(REAL_ROBOT_NAME)
+def real_right_wheel_encoder_sync() -> None:
+    """Measure the right wheel encoder synchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
     _wheel_encoder_sync(robot.right_wheel_encoder)
 
-########################################################################################################################
+
+# INERTIAL MEASUREMENT UNIT ############################################
+
+# ---- Async -----------------------------------------------------------
 
 
-if __name__ == '__main__':
+def _inertial_measurement_unit_cb(data: dict | None) -> None:
+    if data is None:
+        print("No inertial measurement data received.")
+        return
+    print(f"Inertial Measurement Unit data: {data}")
+
+
+def _inertial_measurement_unit_async(robot: DB21J) -> None:
+    robot.inertial_measurement_unit.attach(
+        _inertial_measurement_unit_cb,
+    )
+    robot.inertial_measurement_unit.start()
+    time.sleep(10)
+    print("Stopped.")
+    robot.inertial_measurement_unit.stop()
+
+
+def simulated_inertial_measurement_unit_async() -> None:
+    """Measure the time-of-flight sensor asynchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+    _inertial_measurement_unit_async(robot)
+
+
+def real_inertial_measurement_unit_async() -> None:
+    """Measure the time-of-flight sensor asynchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
+    _inertial_measurement_unit_async(robot)
+
+
+# ---- Sync ------------------------------------------------------------
+
+
+def _inertial_measurement_unit_sync(robot: DB21J) -> None:
+    duration = 2
+    robot.inertial_measurement_unit.start()
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        data = robot.inertial_measurement_unit.get(block=True)
+        _inertial_measurement_unit_cb(data)
+    print("Stopped.")
+    robot.inertial_measurement_unit.stop()
+
+
+def simulated_inertial_measurement_unit_sync() -> None:
+    """Measure the time-of-flight sensor synchronously."""
+    robot = DB21J(SIMULATED_ROBOT_NAME, simulated=True)
+    _inertial_measurement_unit_sync(robot)
+
+
+def real_inertial_measurement_unit_sync() -> None:
+    """Measure the right wheel encoder synchronously."""
+    robot = DB21J(REAL_ROBOT_NAME)
+    _inertial_measurement_unit_sync(robot)
+
+
+########################################################################
+
+
+if __name__ == "__main__":
     pass
 
     # camera
@@ -190,13 +283,13 @@ if __name__ == '__main__':
     # simulated_camera_sync()
     # real_camera_sync()
 
-    # range finder
+    # time-of-flight sensor
     # - async
-    # simulated_range_finder_async()
-    # real_range_finder_async()
+    # simulated_time_of_flight_async()
+    # real_time_of_flight_async()
     # - sync
-    # simulated_range_finder_sync()
-    # real_range_finder_sync()
+    # simulated_time_of_flight_sync()
+    # real_time_of_flight_sync()
 
     # wheel encoder - left
     # - async
@@ -213,3 +306,11 @@ if __name__ == '__main__':
     # - sync
     # simulated_right_wheel_encoder_sync()
     # real_right_wheel_encoder_sync()
+
+    # inertial measurement unit
+    # - async
+    # simulated_inertial_measurement_unit_async()
+    # real_inertial_measurement_unit_async()
+    # - sync
+    # simulated_inertial_measurement_unit_sync()
+    # real_inertial_measurement_unit_sync()

@@ -1,65 +1,92 @@
-from abc import abstractmethod, ABC
+"""Duckietown SDK middleware."""
+
+__all__ = ["GenericPublisher", "GenericSubscriber"]
+
+from abc import abstractmethod
+from collections.abc import Callable
 from threading import Event
-from typing import Any, Callable, Set, TypeVar, Generic, Optional
+from typing import Any
 
-from duckietown_messages.actuators import CarLights
-from ..types import Component, PWMSignal, BGRImage
-
-Msg = Any
-
-T = TypeVar('T')
+from duckietown.sdk.components import Component
 
 
-class GenericNetworkComponent(Component, ABC):
+class GenericNetworkComponent(Component):
+    """Generic network component."""
 
-    def __init__(self, host: str, robot_name: str, path_prefix: Optional[str] = None):
-        super(GenericNetworkComponent, self).__init__()
-        self._robot_name: str = robot_name
-        self._host: str = host
-        self._path_prefix: Optional[str] = path_prefix
+    _host: str
+    _path_prefix: str | tuple[str, ...]
+    _robot_name: str
+
+    def __init__(
+        self,
+        host: str,
+        robot_name: str,
+        path_prefix: str = "",
+    ) -> None:
+        """Initialize the generic network component.
+
+        Args:
+            host (str): The host address of the component.
+            robot_name (str): The name of the robot.
+            path_prefix (str, optional): The path prefix for the
+            component. Defaults to `""`.
+
+        """
+        super().__init__()
+        self._host = host
+        self._robot_name = robot_name
+        self._path_prefix = path_prefix
 
 
-class GenericSubscriber(GenericNetworkComponent, Generic[T], ABC):
+class GenericPublisher(GenericNetworkComponent):
+    """Generic publisher."""
 
-    def __init__(self, host: str, robot_name: str, path_prefix: Optional[str] = None):
-        super(GenericSubscriber, self).__init__(host, robot_name, path_prefix=path_prefix)
-        # ---
+    @abstractmethod
+    def publish(self, data: Any) -> None:  # noqa: ANN401
+        """Publish data.
+
+        Args:
+            data (Any): The data to publish.
+
+        Raises:
+            ValueError: If the data is invalid.
+
+        """
+
+
+class GenericSubscriber[T](GenericNetworkComponent):
+    """Generic subscriber."""
+
+    _callbacks: set[Callable[[Any], None]]
+    _event: Event
+    _reading: T | None
+    _reading_used: bool
+
+    def __init__(
+        self,
+        host: str,
+        robot_name: str,
+        path_prefix: str = "",
+    ) -> None:
+        """Initialize the generic subscriber.
+
+        Args:
+            host (str): The host address of the component.
+            robot_name (str): The name of the robot.
+            path_prefix (str, optional): The path prefix for the
+            component. Defaults to `""`.
+
+        """
+        super().__init__(host, robot_name, path_prefix)
         # async behavior
-        self._callbacks: Set[Callable[[Any], None]] = set()
+        self._callbacks = set()
         # sync behavior
-        self._reading: T = None
-        self._reading_used: bool = False
-        self._event: Event = Event()
+        self._reading = None
+        self._reading_used = False
+        self._event = Event()
 
-    def attach(self, callback: Callable[[Any], None]):
-        self._callbacks.add(callback)
-
-    def detach(self, callback: Callable[[Any], None]):
-        self._callbacks.remove(callback)
-
-    @property
-    def latest(self) -> Optional[T]:
-        return self._reading
-
-    def _grab_current(self) -> Optional[T]:
-        if self._reading_used:
-            return None
-        self._reading_used = True
-        return self._reading
-
-    def capture(self, block: bool = False, timeout: Optional[float] = None) -> Optional[T]:
-        if not self._is_started:
-            raise RuntimeError("Component is not started.")
-        # blocking behavior
-        if block:
-            has_timed_out: bool = not self._event.wait(timeout)
-            if has_timed_out:
-                return None
-            self._event.clear()
-        return self._grab_current()
-
-    def _callback(self, msg):
-        data: Any = self._unpack(msg)
+    def _callback(self, message: Any) -> None:  # noqa: ANN401
+        data = self._unpack(message)
         # notify sync readers
         self._reading = data
         self._reading_used = False
@@ -68,67 +95,72 @@ class GenericSubscriber(GenericNetworkComponent, Generic[T], ABC):
         for callback in self._callbacks:
             callback(data)
 
-    @staticmethod
-    @abstractmethod
-    def _unpack(msg) -> Any:
-        pass
-
-
-class GenericPublisher(GenericNetworkComponent, ABC):
-
-    @staticmethod
-    @abstractmethod
-    def _pack(data) -> Msg:
-        pass
+    def _grab_current(self) -> T | None:
+        if self._reading_used:
+            return None
+        self._reading_used = True
+        return self._reading
 
     @abstractmethod
-    def publish(self, data: Any):
+    def _unpack(self, message: Any) -> Any:  # noqa: ANN401
         pass
 
+    def attach(self, callback: Callable[[Any], None]) -> None:
+        """Attach a callback to the subscriber.
 
-class CameraDriver(GenericSubscriber[BGRImage], ABC):
-    pass
-
-
-class TimeOfFlightDriver(GenericSubscriber, ABC):
-    pass
-
-
-class WheelEncoderDriver(GenericSubscriber, ABC):
-    pass
-
-
-class MapLayerDriver(GenericSubscriber, ABC):
-    pass
-
-
-class PoseDriver(GenericSubscriber, ABC):
-    pass
-
-class DeltaTDriver(GenericSubscriber, ABC):
-    pass
-
-class LEDsDriver(GenericPublisher, ABC):
-
-    def set(self, pattern: CarLights):
-        self.publish(pattern)
-
-
-class MotorsDriver(GenericPublisher, ABC):
-
-    def set_pwm(self, left: PWMSignal, right: PWMSignal):
-        if 1 < left < 0 or 1 < right < 0:
-            raise ValueError("PWM signals must be in the range [0, 1].")
-        self.publish((left, right))
-
-
-class ResetFlagDriver(GenericPublisher, ABC):
-    """Driver for sending reset flag commands to the robot."""
-
-    def set_reset(self, reset: bool):
-        """Set the reset flag.
-        
         Args:
-            reset: True to reset the robot's state, False otherwise.
+            callback (Callable[[Any], None]): The callback to attach.
+
         """
-        self.publish(reset)
+        self._callbacks.add(callback)
+
+    def detach(self, callback: Callable[[Any], None]) -> None:
+        """Detach a callback from the subscriber.
+
+        Args:
+            callback (Callable[[Any], None]): The callback to detach.
+
+        """
+        self._callbacks.remove(callback)
+
+    @property
+    def latest(self) -> T | None:
+        """Get the latest reading.
+
+        Returns:
+            T | None: The latest reading or `None` if not available.
+
+        """
+        return self._reading
+
+    def get(
+        self,
+        *,
+        block: bool = False,
+        clean_up: bool = False,
+        timeout: float | None = None,
+    ) -> T | None:
+        """Get the latest reading.
+
+        Args:
+            block (bool, optional): Whether to block until a reading is
+            available. Defaults to `False`.
+            clean_up (bool, optional): Whether to stop the
+            subscriber after getting the reading. Defaults to `False`.
+            timeout (float | None, optional): The timeout for blocking
+            behavior. Defaults to `None`.
+
+        Returns:
+            T | None: The latest reading or `None` if not available.
+
+        """
+        if not self.has_started:
+            self.start()
+        if block:
+            if not self._event.wait(timeout):
+                return None
+            self._event.clear()
+        data = self._grab_current()
+        if clean_up:
+            self.stop()
+        return data

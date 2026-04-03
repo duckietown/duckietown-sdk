@@ -1,19 +1,32 @@
-import time
-from types import NoneType
-from typing import Any, Type, Set
+"""Test all."""
 
-from duckietown.sdk.middleware.base import GenericPublisher, GenericSubscriber
+import time
+from collections.abc import Callable
+from types import NoneType
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+from duckietown_messages.actuators import CarLights, DifferentialPWM
+from duckietown_messages.colors import RGBA
 
 from duckietown.sdk.robots.duckiebot import DB21M
-from duckietown.sdk.types import BGRImage, LEDsPattern, RGBAColor
+
+if TYPE_CHECKING:
+    from duckietown.sdk.middleware.base import (
+        GenericPublisher,
+        GenericSubscriber,
+    )
+
+SIMULATED_ROBOT_NAME = "map_0/vehicle_0"
+REAL_ROBOT_NAME = "db21j3"
 
 
-def _process(data: Any, allowed: Set[Type] = None) -> int:
-    if type(data) not in allowed:
+def _process(data: Any, allowed: set[type] | None = None) -> int:
+    if allowed is not None and type(data) not in allowed:
         print(f"Received unexpected type: {type(data)}")
         return 0
     # print data
-    if isinstance(data, BGRImage):
+    if isinstance(data, np.ndarray):
         print(f"Received image of shape: {data.shape}")
     elif isinstance(data, float):
         print(f"Received float: {data}")
@@ -21,155 +34,198 @@ def _process(data: Any, allowed: Set[Type] = None) -> int:
     return 1
 
 
-def _measure_sensor_async(robot: DB21M, component: str, allowed: Set[Type]):
-    duration: int = 10
-    i: int = 0
-
-    def callback(data: Any):
+def _get_callback(i: int, allowed: set[type]) -> Callable[[Any], None]:
+    def callback(data: Any) -> None:
         nonlocal i
         i += _process(data, allowed=allowed)
 
+    return callback
+
+
+def _measure_sensor_async(
+    robot: DB21M,
+    component: str,
+    allowed: set[type],
+) -> None:
+    duration = 10
+    i = 0
     print("Attaching...")
     source: GenericSubscriber = getattr(robot, component)
+    callback = _get_callback(i, allowed)
     source.attach(callback)
     print("Attached.")
     source.start()
     time.sleep(duration)
     print("Stopped.")
-    print(f"Measured: {round(i / duration)}Hz")
+    frequency = round(i / duration)
+    print(f"Measured: {frequency}Hz")
 
 
-def _measure_sensor_sync(robot: DB21M, component: str, allowed: Set[Type]):
-    duration: int = 10
-    i: int = 0
+def _measure_sensor_sync(
+    robot: DB21M,
+    component: str,
+    allowed: set[type],
+) -> None:
+    duration = 10
+    i = 0
     print("Attaching...")
     source: GenericSubscriber = getattr(robot, component)
     source.start()
-    stime: float = time.time()
-    while time.time() - stime < duration:
-        data = source.capture(block=True)
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        data = source.get(block=True)
         i += _process(data, allowed=allowed)
     print("Stopped.")
     print(f"Measured: {round(i / duration)}Hz")
 
 
-def _publish(robot: DB21M, component: str, data: Any, period: float):
-    duration: int = 4
+def _publish(robot: DB21M, component: str, data: Any, period: float) -> None:
+    duration = 4
     sink: GenericPublisher = getattr(robot, component)
     sink.start()
-    stime: float = time.time()
-    while time.time() - stime < duration:
-        sink.publish(data)
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        sink.publish(data=data)
         time.sleep(period)
 
 
-def simulated_camera_async():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    _measure_sensor_async(robot, "camera", {BGRImage})
+def simulated_camera_async() -> None:
+    """Measure the simulated camera asynchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    _measure_sensor_async(robot, "camera", {np.ndarray})
 
 
-def real_camera_async():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "camera", {BGRImage})
+def real_camera_async() -> None:
+    """Measure the real camera asynchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_async(robot, "camera", {np.ndarray})
 
 
-def simulated_camera_sync():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    _measure_sensor_sync(robot, "camera", {BGRImage})
+def simulated_camera_sync() -> None:
+    """Measure the simulated camera synchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    _measure_sensor_sync(robot, "camera", {np.ndarray})
 
 
-def real_camera_sync():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "camera", {BGRImage})
+def real_camera_sync() -> None:
+    """Measure the real camera synchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_sync(robot, "camera", {np.ndarray})
 
 
-def simulated_range_finder_async():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    _measure_sensor_async(robot, "range_finder", {float, NoneType})
+def simulated_time_of_flight_async() -> None:
+    """Measure the simulated time-of-flight sensor asynchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    _measure_sensor_async(robot, "time_of_flight", {float, NoneType})
 
 
-def real_range_finder_async():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "range_finder", {float, NoneType})
+def real_time_of_flight_async() -> None:
+    """Measure the real time-of-flight sensor asynchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_async(robot, "time_of_flight", {float, NoneType})
 
 
-def simulated_range_finder_sync():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    _measure_sensor_sync(robot, "range_finder", {float, NoneType})
+def simulated_time_of_flight_sync() -> None:
+    """Measure the simulated time-of-flight sensor synchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    _measure_sensor_sync(robot, "time_of_flight", {float, NoneType})
 
 
-def real_range_finder_sync():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "range_finder", {float, NoneType})
+def real_time_of_flight_sync() -> None:
+    """Measure the real time-of-flight sensor synchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_sync(robot, "time_of_flight", {float, NoneType})
 
 
-def simulated_left_wheel_encoder_async():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
+def simulated_left_wheel_encoder_async() -> None:
+    """Measure the simulated left wheel encoder asynchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
     _measure_sensor_async(robot, "left_wheel_encoder", {float})
 
 
-def real_left_wheel_encoder_async():
-    robot: DB21M = DB21M("db21j3")
+def real_left_wheel_encoder_async() -> None:
+    """Measure the real left wheel encoder asynchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
     _measure_sensor_async(robot, "left_wheel_encoder", {float})
 
 
-def simulated_left_wheel_encoder_sync():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
+def simulated_left_wheel_encoder_sync() -> None:
+    """Measure the simulated left wheel encoder synchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
     _measure_sensor_sync(robot, "left_wheel_encoder", {float})
 
 
-def real_left_wheel_encoder_sync():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "left_wheel_encoder", {float})
+def real_left_wheel_encoder_sync() -> None:
+    """Measure the real left wheel encoder synchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_sync(robot, "left_wheel_encoder", {float})
 
 
-def simulated_right_wheel_encoder_async():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
+def simulated_right_wheel_encoder_async() -> None:
+    """Measure the simulated right wheel encoder asynchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
     _measure_sensor_async(robot, "right_wheel_encoder", {float})
 
 
-def real_right_wheel_encoder_async():
-    robot: DB21M = DB21M("db21j3")
+def real_right_wheel_encoder_async() -> None:
+    """Measure the real right wheel encoder asynchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
     _measure_sensor_async(robot, "right_wheel_encoder", {float})
 
 
-def simulated_right_wheel_encoder_sync():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
+def simulated_right_wheel_encoder_sync() -> None:
+    """Measure the simulated right wheel encoder synchronously."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
     _measure_sensor_sync(robot, "right_wheel_encoder", {float})
 
 
-def real_right_wheel_encoder_sync():
-    robot: DB21M = DB21M("db21j3")
-    _measure_sensor_async(robot, "right_wheel_encoder", {float})
+def real_right_wheel_encoder_sync() -> None:
+    """Measure the real right wheel encoder synchronously."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    _measure_sensor_sync(robot, "right_wheel_encoder", {float})
 
 
-def simulated_motors():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    _publish(robot, "motors", (0.5, 0.5), 0.1)
+def simulated_motors() -> None:
+    """Measure the simulated motors."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    differential_pwm = DifferentialPWM(left=0.5, right=0.5)
+    _publish(robot, "motors", differential_pwm, 0.1)
 
 
-def real_motors():
-    robot: DB21M = DB21M("db21j3")
-    _publish(robot, "motors", (0.5, 0.5), 0.1)
+def real_motors() -> None:
+    """Measure the real motors."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    differential_pwm = DifferentialPWM(left=0.5, right=0.5)
+    _publish(robot, "motors", differential_pwm, 0.1)
 
 
-def simulated_lights():
-    robot: DB21M = DB21M("map_0/vehicle_0", simulated=True)
-    amber: RGBAColor = (1, 0.7, 0, 1.0)
-    lights: LEDsPattern = LEDsPattern(front_left=amber, front_right=amber, rear_right=amber, rear_left=amber)
+def simulated_lights() -> None:
+    """Measure the simulated lights."""
+    robot = DB21M(SIMULATED_ROBOT_NAME, simulated=True)
+    amber = RGBA(r=1, g=0.7, b=0, a=1)
+    lights = CarLights(
+        front_left=amber,
+        front_right=amber,
+        back_left=amber,
+        back_right=amber,
+    )
     _publish(robot, "lights", lights, 0.1)
 
 
-def real_lights():
-    robot: DB21M = DB21M("db21j3")
-    amber: RGBAColor = (1, 0.7, 0, 1.0)
-    lights: LEDsPattern = LEDsPattern(front_left=amber, front_right=amber, rear_right=amber, rear_left=amber)
-    _publish(robot, "lights", lights, 1.0)
+def real_lights() -> None:
+    """Measure the real lights."""
+    robot = DB21M(REAL_ROBOT_NAME)
+    amber = RGBA(r=1, g=0.7, b=0, a=1)
+    lights = CarLights(
+        front_left=amber,
+        front_right=amber,
+        back_left=amber,
+        back_right=amber,
+    )
+    _publish(robot, "lights", lights, 1)
 
 
-if __name__ == '__main__':
-    pass
-
+if __name__ == "__main__":
     # camera
     # - async
     # simulated_camera_async()
@@ -178,13 +234,13 @@ if __name__ == '__main__':
     # simulated_camera_sync()
     # real_camera_sync()
 
-    # range finder
+    # time-of-flight sensor
     # - async
-    # simulated_range_finder_async()
-    # real_range_finder_async()
+    # simulated_time_of_flight_async()
+    # real_time_of_flight_async()
     # - sync
-    # simulated_range_finder_sync()
-    # real_range_finder_sync()
+    # simulated_time_of_flight_sync()
+    # real_time_of_flight_sync()
 
     # left wheel encoder
     # - async
@@ -209,4 +265,3 @@ if __name__ == '__main__':
     # lights
     # simulated_lights()
     real_lights()
-
