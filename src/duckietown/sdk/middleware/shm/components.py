@@ -9,18 +9,21 @@ engine-side ``ShmDataConnector``:
 
 Layout of the shared-memory file
 --------------------------------
-Offset  Size  Field
-------  ----  -----
-0       4     world_input_length   - uint32LE: byte length of the
-                                     WorldInput CBOR blob
-4       4     world_output_length  - uint32LE: byte length of the
-                                     WorldOutput CBOR blob
-8       N     world_input_data     - WorldInput CBOR (N =
-                                     _WORLD_INPUT_MAX_BYTES)
-8+N     M     world_output_data    - WorldOutput CBOR (M =
-                                     _WORLD_OUTPUT_MAX_BYTES)
+Offset    Size  Field
+------    ----  -----
+0         4     magic                 - ASCII "DMIO"
+4         4     version               - uint32LE layout version
+8         4     world_input_capacity  - uint32LE maximum input bytes
+12        4     world_output_capacity - uint32LE maximum output bytes
+16        4     world_input_length    - uint32LE current input byte
+                                        length
+20        4     world_output_length   - uint32LE current output byte
+                                        length
+24        N     world_input_data      - WorldInput CBOR
+24 + N    M     world_output_data     - WorldOutput CBOR
 
-Total file size: 8 + N + M  (default: 8 + 65536 + 1024 = 66568 bytes)
+The file can grow when the active map produces larger aggregated world
+messages than the current capacities can hold.
 
 Signalling
 ----------
@@ -39,31 +42,53 @@ __all__ = ["ShmWorldInput", "ShmWorldOutput"]
 
 import logging
 import os
-import struct
 from mmap import mmap
-from threading import Thread
+from pathlib import Path
+from threading import Thread, current_thread
 from typing import Any
 
 from dtps_http import RawData
-from duckietown_messages.simulation import WorldInput as WorldInputMessage
 from duckietown_messages.simulation import WorldOutput as WorldOutputMessage
+from duckietown_messages.simulation.shm_layout import (
+    SHM_HEADER_SIZE,
+    ShmLayout,
+    default_shm_layout,
+    pack_shm_header,
+    resize_shm_layout,
+    unpack_shm_header,
+)
 
 from duckietown.sdk.middleware.components import WorldInput, WorldOutput
 
-# Header: two uint32LE values (world_input_length, world_output_length).
-_HEADER_FMT = "<II"
-_HEADER_SIZE = struct.calcsize(_HEADER_FMT)  # 8 bytes
-# Maximum payload sizes.
-_WORLD_INPUT_MAX_BYTES = 65536  # 64 KB - plenty for JPEG camera frame
-_WORLD_OUTPUT_MAX_BYTES = 1024  # 1 KB - WorldOutput is ~92 bytes CBOR
-_TOTAL_SHM_SIZE = (
-    _HEADER_SIZE + _WORLD_INPUT_MAX_BYTES + _WORLD_OUTPUT_MAX_BYTES
-)
-# Offsets into the memory map buffer.
-_WORLD_INPUT_OFFSET = _HEADER_SIZE
-_WORLD_OUTPUT_OFFSET = _HEADER_SIZE + _WORLD_INPUT_MAX_BYTES
+_DEFAULT_LAYOUT = default_shm_layout()
 
 _logger = logging.getLogger(__name__)
+
+
+def _load_initial_layout(
+    shm_path: str,
+    fallback_layout: ShmLayout,
+) -> ShmLayout:
+    shm_file = Path(shm_path)
+    if (not shm_file.exists()) or shm_file.stat().st_size < SHM_HEADER_SIZE:
+        return fallback_layout
+    with shm_file.open("rb") as file:
+        header_bytes = file.read(SHM_HEADER_SIZE)
+    layout, _, _ = unpack_shm_header(
+        header_bytes,
+        fallback_layout=fallback_layout,
+    )
+    if shm_file.stat().st_size >= layout.total_size:
+        return layout
+    return fallback_layout
+
+
+def _open_memory_map(shm_path: str, size: int) -> mmap:
+    file_descriptor = os.open(shm_path, os.O_RDWR)
+    try:
+        return mmap(file_descriptor, size)
+    finally:
+        os.close(file_descriptor)
 
 
 class ShmWorldInput(WorldInput):
@@ -86,6 +111,7 @@ class ShmWorldInput(WorldInput):
     _sdk_to_engine_path: str
     _shm_path: str
     _thread: Thread
+    _layout: ShmLayout
 
     def __init__(
         self,
@@ -111,17 +137,113 @@ class ShmWorldInput(WorldInput):
         self._engine_to_sdk_file_descriptor = None
         self._sdk_to_engine_file_descriptor = None
         self._running = False
+        self._layout = _DEFAULT_LAYOUT
         self._thread = Thread(
             target=self._reader_loop,
             daemon=True,
             name="ShmWorldInput-reader",
         )
 
+    def _sync_layout(self) -> tuple[ShmLayout, int, int]:
+        memory_map_ = self._memory_map
+        if memory_map_ is None:  # pragma: no cover
+            message = "SHM memory map not initialized."
+            raise RuntimeError(message)
+        layout, world_input_length, world_output_length = unpack_shm_header(
+            bytes(memory_map_[:SHM_HEADER_SIZE]),
+            fallback_layout=self._layout,
+        )
+        if layout.total_size > self._layout.total_size:
+            memory_map_.close()
+            self._memory_map = _open_memory_map(
+                self._shm_path,
+                layout.total_size,
+            )
+            memory_map_ = self._memory_map
+            if memory_map_ is None:  # pragma: no cover
+                message = "SHM remap failed."
+                raise RuntimeError(message)
+            layout, world_input_length, world_output_length = (
+                unpack_shm_header(
+                    bytes(memory_map_[:SHM_HEADER_SIZE]),
+                    fallback_layout=layout,
+                )
+            )
+        if layout.total_size >= self._layout.total_size:
+            self._layout = layout
+        return self._layout, world_input_length, world_output_length
+
+    def _close_handles(self) -> None:
+        try:
+            if self._memory_map is not None:
+                self._memory_map.close()
+                self._memory_map = None
+        except OSError:
+            pass
+        try:
+            if self._engine_to_sdk_file_descriptor is not None:
+                os.close(self._engine_to_sdk_file_descriptor)
+                self._engine_to_sdk_file_descriptor = None
+        except OSError:
+            pass
+        try:
+            if self._sdk_to_engine_file_descriptor is not None:
+                os.close(self._sdk_to_engine_file_descriptor)
+                self._sdk_to_engine_file_descriptor = None
+        except OSError:
+            pass
+
+    def _read_world_input_bytes(self) -> bytes | None:
+        layout, world_input_length, _ = self._sync_layout()
+        if world_input_length == 0:
+            return None
+        if world_input_length > layout.world_input_capacity:
+            _logger.warning(
+                "world_input_length=%d exceeds world_input_capacity=%d; "
+                "skipping.",
+                world_input_length,
+                layout.world_input_capacity,
+            )
+            return None
+        memory_map_ = self._memory_map
+        if memory_map_ is None:  # pragma: no cover
+            _logger.warning(
+                "Ignoring engine to SDK signal with no active memory map.",
+            )
+            return None
+        cbor_bytes = bytes(
+            memory_map_[
+                layout.world_input_offset : (
+                    layout.world_input_offset + world_input_length
+                )
+            ],
+        )
+        latest_layout, latest_world_input_length, _ = self._sync_layout()
+        if latest_world_input_length != world_input_length:
+            _logger.debug(
+                "Ignoring unstable WorldInput snapshot: length changed "
+                "from %d to %d while reading.",
+                world_input_length,
+                latest_world_input_length,
+            )
+            return None
+        if latest_layout.world_input_capacity != layout.world_input_capacity:
+            _logger.debug(
+                "Ignoring unstable WorldInput snapshot: input capacity "
+                "changed from %d to %d while reading.",
+                layout.world_input_capacity,
+                latest_layout.world_input_capacity,
+            )
+            return None
+        return cbor_bytes
+
     def _start(self) -> None:
         """Open the SHM file and FIFOs, then start the reader thread."""
-        file_descriptor = os.open(self._shm_path, os.O_RDWR)
-        self._memory_map = mmap(file_descriptor, _TOTAL_SHM_SIZE)
-        os.close(file_descriptor)
+        self._layout = _load_initial_layout(self._shm_path, self._layout)
+        self._memory_map = _open_memory_map(
+            self._shm_path,
+            self._layout.total_size,
+        )
         # Open FIFOs in O_RDWR so we hold both ends (avoids ENXIO when
         # the other side hasn't opened yet) and so the file descriptor
         # stays valid.
@@ -146,6 +268,9 @@ class ShmWorldInput(WorldInput):
                 os.write(self._engine_to_sdk_file_descriptor, b"\x00")
         except OSError:
             pass
+        if self._thread.is_alive() and current_thread() is not self._thread:
+            self._thread.join(timeout=1)
+        self._close_handles()
 
     def _unpack(self, message: Any) -> Any:  # noqa: ANN401
         self._remember_session_id(message)
@@ -160,7 +285,6 @@ class ShmWorldInput(WorldInput):
             message = "_reader_loop called before _start()"
             raise RuntimeError(message)
         fifo_file_descriptor = self._engine_to_sdk_file_descriptor
-        memory_map_ = self._memory_map
         while self._running:
             try:
                 signal = os.read(fifo_file_descriptor, 1)
@@ -171,47 +295,14 @@ class ShmWorldInput(WorldInput):
                 continue
             if not signal:
                 continue
-            # Ignore the stop-signal byte (value == 0).
             if signal == b"\x00":
                 if not self._running:
                     return
                 continue
             # Read WorldInput from the memory map.
             try:
-                header_bytes = memory_map_[:_HEADER_SIZE]
-                world_input_length, _ = struct.unpack(
-                    _HEADER_FMT,
-                    header_bytes,
-                )
-                if world_input_length == 0:
-                    continue
-                if world_input_length > _WORLD_INPUT_MAX_BYTES:
-                    _logger.warning(
-                        "world_input_length=%d exceeds "
-                        "WORLD_INPUT_MAX_BYTES=%d; skipping.",
-                        world_input_length,
-                        _WORLD_INPUT_MAX_BYTES,
-                    )
-                    continue
-                cbor_bytes = bytes(
-                    memory_map_[
-                        _WORLD_INPUT_OFFSET : (
-                            _WORLD_INPUT_OFFSET + world_input_length
-                        )
-                    ],
-                )
-                latest_header_bytes = memory_map_[:_HEADER_SIZE]
-                latest_world_input_length, _ = struct.unpack(
-                    _HEADER_FMT,
-                    latest_header_bytes,
-                )
-                if latest_world_input_length != world_input_length:
-                    _logger.debug(
-                        "Ignoring unstable WorldInput snapshot: "
-                        "length changed from %d to %d while reading.",
-                        world_input_length,
-                        latest_world_input_length,
-                    )
+                cbor_bytes = self._read_world_input_bytes()
+                if cbor_bytes is None:
                     continue
             except Exception:
                 _logger.exception("Error reading WorldInput from SHM.")
@@ -219,9 +310,14 @@ class ShmWorldInput(WorldInput):
             # Deserialize
             try:
                 raw_data = RawData(cbor_bytes, "application/cbor")
-                world_input_message = WorldInputMessage.from_rawdata(raw_data)
-                message = world_input_message.model_dump()
-                self._callback(message)
+                native_message = raw_data.get_as_native_object()
+                if not isinstance(native_message, dict):
+                    _logger.warning(
+                        "Ignoring non-dict WorldInput payload of type %s.",
+                        type(native_message).__name__,
+                    )
+                    continue
+                self._callback(native_message)
             except Exception:
                 _logger.exception("Error deserializing WorldInput.")
 
@@ -229,15 +325,16 @@ class ShmWorldInput(WorldInput):
 class ShmWorldOutput(WorldOutput):
     """Shared-memory world-output publisher.
 
-    ``publish(data)`` is called by the vehicle's ``step()`` method.  It
-    serializes the ``WorldOutput`` message to CBOR, writes it to the
-    shared memory map and signals the engine via the SDK to engine FIFO.
+    ``publish(data)`` serializes the environment-owned ``WorldOutput``
+    message to CBOR, writes it to the shared memory map, and signals the
+    engine via the SDK to engine FIFO.
     """
 
     _memory_map: mmap | None
     _sdk_to_engine_file_descriptor: int | None
     _sdk_to_engine_path: str
     _shm_path: str
+    _layout: ShmLayout
 
     def __init__(
         self,
@@ -260,12 +357,73 @@ class ShmWorldOutput(WorldOutput):
         self._sdk_to_engine_path = shm_path + ".s2e"
         self._memory_map = None
         self._sdk_to_engine_file_descriptor = None
+        self._layout = _DEFAULT_LAYOUT
+
+    def _sync_layout(self) -> tuple[ShmLayout, int, int]:
+        memory_map_ = self._memory_map
+        if memory_map_ is None:  # pragma: no cover
+            message = "SHM memory map not initialized."
+            raise RuntimeError(message)
+        layout, world_input_length, world_output_length = unpack_shm_header(
+            bytes(memory_map_[:SHM_HEADER_SIZE]),
+            fallback_layout=self._layout,
+        )
+        if layout.total_size > self._layout.total_size:
+            memory_map_.flush()
+            memory_map_.close()
+            self._memory_map = _open_memory_map(
+                self._shm_path,
+                layout.total_size,
+            )
+            memory_map_ = self._memory_map
+            if memory_map_ is None:  # pragma: no cover
+                message = "SHM remap failed."
+                raise RuntimeError(message)
+            layout, world_input_length, world_output_length = (
+                unpack_shm_header(
+                    bytes(memory_map_[:SHM_HEADER_SIZE]),
+                    fallback_layout=layout,
+                )
+            )
+        if layout.total_size >= self._layout.total_size:
+            self._layout = layout
+        return self._layout, world_input_length, world_output_length
+
+    def _resize_layout(
+        self,
+        layout: ShmLayout,
+        *,
+        world_input_length: int,
+    ) -> None:
+        memory_map_ = self._memory_map
+        if memory_map_ is not None:
+            memory_map_.flush()
+            memory_map_.close()
+        file_descriptor = os.open(self._shm_path, os.O_RDWR)
+        try:
+            os.ftruncate(file_descriptor, layout.total_size)
+            self._memory_map = mmap(file_descriptor, layout.total_size)
+        finally:
+            os.close(file_descriptor)
+        self._layout = layout
+        memory_map_ = self._memory_map
+        if memory_map_ is None:  # pragma: no cover
+            message = "SHM memory map not initialized."
+            raise RuntimeError(message)
+        memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
+            self._layout,
+            world_input_length=world_input_length,
+            world_output_length=0,
+        )
+        memory_map_.flush()
 
     def _start(self) -> None:
         """Open the SHM file and the SDK to engine FIFO."""
-        file_descriptor = os.open(self._shm_path, os.O_RDWR)
-        self._memory_map = mmap(file_descriptor, _TOTAL_SHM_SIZE)
-        os.close(file_descriptor)
+        self._layout = _load_initial_layout(self._shm_path, self._layout)
+        self._memory_map = _open_memory_map(
+            self._shm_path,
+            self._layout.total_size,
+        )
         self._sdk_to_engine_file_descriptor = os.open(
             self._sdk_to_engine_path,
             os.O_RDWR,
@@ -300,22 +458,38 @@ class ShmWorldOutput(WorldOutput):
             raw_data = RawData.cbor_from_native_object(data)
         cbor_bytes: bytes = raw_data.content
         world_output_length = len(cbor_bytes)
-        if world_output_length > _WORLD_OUTPUT_MAX_BYTES:
-            _logger.warning(
-                "WorldOutput CBOR (%d bytes) exceeds SHM buffer (%d bytes); "
-                "dropping.",
-                world_output_length,
-                _WORLD_OUTPUT_MAX_BYTES,
+        layout, world_input_length, _ = self._sync_layout()
+        target_layout = resize_shm_layout(
+            layout,
+            min_world_output_capacity=world_output_length,
+        )
+        if target_layout != layout:
+            self._resize_layout(
+                target_layout,
+                world_input_length=world_input_length,
             )
-            return
         # Write the payload first and publish the length only after the
         # bytes are in place so the engine never sees a fresh size for a
         # stale buffer.
         memory_map_ = self._memory_map
+        if memory_map_ is None:  # pragma: no cover
+            message = "SHM memory map not initialized."
+            raise RuntimeError(message)
+        memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
+            self._layout,
+            world_input_length=world_input_length,
+            world_output_length=0,
+        )
         memory_map_[
-            _WORLD_OUTPUT_OFFSET : (_WORLD_OUTPUT_OFFSET + world_output_length)
+            self._layout.world_output_offset : (
+                self._layout.world_output_offset + world_output_length
+            )
         ] = cbor_bytes
-        memory_map_[4:8] = struct.pack("<I", world_output_length)
+        memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
+            self._layout,
+            world_input_length=world_input_length,
+            world_output_length=world_output_length,
+        )
         memory_map_.flush()
         # Signal the engine.
         try:

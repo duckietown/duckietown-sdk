@@ -124,7 +124,7 @@ else:
             """Encode a BGR image to JPEG format.
 
             Args:
-                _: The BGR image to encode (unused — platform
+                _: The BGR image to encode (unused - platform
                     not supported).
 
             Raises:
@@ -142,7 +142,7 @@ else:
             """Decode a JPEG image to BGR format.
 
             Args:
-                _: The encoded JPEG image (unused — platform
+                _: The encoded JPEG image (unused - platform
                     not supported).
 
             Raises:
