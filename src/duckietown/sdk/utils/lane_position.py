@@ -995,7 +995,7 @@ class MapInterpreter:
                     head_length=0.1,
                     fc="g",
                     ec="g",
-                    label=f"Angle: {lane_position.angle_deg:.1f}°",
+                    label=f"Angle: {lane_position.angle_deg:.1f} deg",
                 )
         self._plot("Map Trajectory and Position", "x (m)", "z (m)")
         return self._get_output_path(output_directory, filename)

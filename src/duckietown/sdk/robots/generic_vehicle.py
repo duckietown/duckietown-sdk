@@ -2,29 +2,18 @@
 
 __all__ = ["GenericVehicle"]
 
-import os
-from collections.abc import Callable
 from typing import Any
 
-from duckietown_messages.simulation import WorldOutput as WorldOutputMessage
-from duckietown_messages.standard import Header
+from duckietown_messages.simulation import WorldEntityOutput
 
 from duckietown.sdk.components import CompoundComponent
 from duckietown.sdk.middleware.components import (
     DeltaTime,
     MapLayer,
-    WorldInput,
-    WorldOutput,
 )
 from duckietown.sdk.middleware.dtps.components import (
     DTPSDeltaTime,
     DTPSMapLayer,
-    DTPSWorldInput,
-    DTPSWorldOutput,
-)
-from duckietown.sdk.middleware.shm.components import (
-    ShmWorldInput,
-    ShmWorldOutput,
 )
 
 _DEFAULT_REAL_PORT = 11911
@@ -43,7 +32,6 @@ class GenericVehicle(CompoundComponent):
     _port: int
     _simulated: bool
     has_started: bool
-    world_output: WorldOutputMessage
 
     def __init__(
         self,
@@ -67,9 +55,8 @@ class GenericVehicle(CompoundComponent):
             simulated (bool, optional): Whether the vehicle runs inside
                 a Duckiematrix engine. Defaults to ``False``.
             gym_mode (bool, optional): Whether to use the gym-mode
-                world-input / world-output loop. Requires *simulated*
-                to be ``True``. Defaults to ``False``. Defaults to
-                ``False``.
+                environment-controlled stepping path. Requires
+                *simulated* to be ``True``. Defaults to ``False``.
 
         Raises:
             ValueError: If *gym_mode* is ``True`` but
@@ -90,8 +77,6 @@ class GenericVehicle(CompoundComponent):
             self._port = port
         self._simulated = simulated
         self._gym_mode = gym_mode
-        header = Header()
-        self.world_output = WorldOutputMessage(header=header)
         self.has_started = False
 
     def __repr__(self) -> str:
@@ -118,10 +103,7 @@ class GenericVehicle(CompoundComponent):
         key = (kind, name)
         if key not in self._components:
             kwargs = {}
-            if self._simulated and (
-                not self._gym_mode
-                or cls in (DeltaTime, WorldInput, WorldOutput)
-            ):
+            if self._simulated and not self._gym_mode:
                 kwargs["path_prefix"] = path_prefix
             self._components[key] = component_cls(
                 self._host,
@@ -135,16 +117,18 @@ class GenericVehicle(CompoundComponent):
             raise TypeError
         return component
 
-    def _prepare_world_output(self, timestamp: float) -> None:
-        session_id = self._world_input.current_session_id
-        if session_id is None:
-            message = (
-                "Cannot publish WorldOutput before receiving a WorldInput "
-                "with a session_id."
-            )
-            raise RuntimeError(message)
-        self.world_output.header.timestamp = timestamp
-        self.world_output.session_id = session_id
+    def make_world_entity_output(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> WorldEntityOutput:
+        """Build a per-entity gym WorldOutput payload.
+
+        Gym world messages are environment-owned. Vehicle classes can
+        override this hook to describe how their per-entity actuator
+        payload should be constructed.
+        """
+        raise NotImplementedError
 
     def _map_layer(self, name: str) -> MapLayer:
         return self._get_component(
@@ -154,78 +138,6 @@ class GenericVehicle(CompoundComponent):
             MapLayer,
             DTPSMapLayer,
         )
-
-    @property
-    def _world_input(self) -> WorldInput:
-        # Use the shared-memory subscriber whenever DTSHELL_SHM_PATH is
-        # set.
-        if os.environ.get("DTSHELL_SHM_PATH", ""):
-            return self._get_component(
-                "in",
-                "",
-                ("robot",),
-                WorldInput,
-                ShmWorldInput,
-            )
-        return self._get_component(
-            "in",
-            "",
-            ("robot",),
-            WorldInput,
-            DTPSWorldInput,
-        )
-
-    @property
-    def _world_output(self) -> WorldOutput:
-        # Use the shared-memory publisher whenever DTSHELL_SHM_PATH is
-        # set.
-        if os.environ.get("DTSHELL_SHM_PATH", ""):
-            return self._get_component(
-                "out",
-                "",
-                ("robot",),
-                WorldOutput,
-                ShmWorldOutput,
-            )
-        return self._get_component(
-            "out",
-            "",
-            ("robot",),
-            WorldOutput,
-            DTPSWorldOutput,
-        )
-
-    def attach(self, callback: Callable[[Any], None]) -> None:
-        """Attach a callback to the world input (gym only).
-
-        Args:
-            callback (Callable[[Any], None]): Callback called
-                with each world-input dict.
-
-        Raises:
-            RuntimeError: If not in gym mode.
-
-        """
-        if not self._gym_mode:
-            message = "Attach can only be called in gym mode."
-            raise RuntimeError(message)
-        self._world_input.attach(callback)
-
-    def detach(self, callback: Callable[[Any], None]) -> None:
-        """Detach a callback from the world input (gym only).
-
-        Args:
-            callback (Callable[[Any], None]): Callback to
-                detach.
-
-        Raises:
-            RuntimeError: If not in gym mode.
-
-        """
-        if not self._gym_mode:
-            message = "Detach can only be called in gym mode."
-            raise RuntimeError(message)
-        self._world_input.detach(callback)
 
     @property
     def delta_time(self) -> DeltaTime:
@@ -275,10 +187,6 @@ class GenericVehicle(CompoundComponent):
 
     def start(self) -> None:
         """Start vehicle components for the current mode."""
-        if self._gym_mode:
-            self.delta_time.start()
-            self._world_output.start()
-            self._world_input.start()
         if self._simulated:
             self.map_frames.start()
             self.map_tile_info.start()
@@ -287,10 +195,6 @@ class GenericVehicle(CompoundComponent):
 
     def stop(self) -> None:
         """Stop vehicle components for the current mode."""
-        if self._gym_mode:
-            self.delta_time.stop()
-            self._world_input.stop()
-            self._world_output.stop()
         if self._simulated:
             self.map_frames.stop()
             self.map_tile_info.stop()

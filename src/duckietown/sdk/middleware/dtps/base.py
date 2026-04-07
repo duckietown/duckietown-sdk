@@ -248,6 +248,14 @@ class GenericDTPSPublisher(GenericPublisher):
         coroutine = self._publisher()
         self._connector.arun(coroutine)
 
+    @staticmethod
+    def _serialize_message(message: Any) -> RawData:  # noqa: ANN401
+        if isinstance(message, RawData):
+            return message
+        if isinstance(message, BaseMessage):
+            return message.to_rawdata()
+        return RawData.cbor_from_native_object(message)
+
     async def _publisher(self) -> None:
         queue = self._connector.context.navigate(
             *self._path_prefix,
@@ -256,11 +264,7 @@ class GenericDTPSPublisher(GenericPublisher):
         )
         async with queue.publisher_context() as publisher:
             while True:
-                message = await self._queue.get()
-                if isinstance(message, BaseMessage):
-                    raw_data = message.to_rawdata()
-                else:
-                    raw_data = RawData.cbor_from_native_object(message)
+                raw_data = await self._queue.get()
                 await publisher.publish(raw_data)
 
     def publish(self, data: Any) -> None:  # noqa: ANN401
@@ -280,6 +284,7 @@ class GenericDTPSPublisher(GenericPublisher):
         message = (
             data if not self._override_message else self._override_message
         )
+        raw_data = self._serialize_message(message)
         # publish message
-        coroutine = self._queue.put(message)
+        coroutine = self._queue.put(raw_data)
         self._connector.arun(coroutine)

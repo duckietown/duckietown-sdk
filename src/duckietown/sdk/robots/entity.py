@@ -16,6 +16,7 @@ from duckietown.sdk.middleware.dtps.components import DTPSWorldInput
 
 _ENGINE_HOST = "127.0.0.1"
 _ENGINE_PORT = 7501
+_GYM_WORLD_TOPIC_NAME = "gym"
 
 
 def discover_entities(
@@ -25,7 +26,7 @@ def discover_entities(
     """Query the engine's DTPS index and classify entities.
 
     Returns:
-        ``(vehicle_names, static_names)`` — vehicles have both a
+        ``(vehicle_names, static_names)`` - vehicles have both a
         ``robot/<name>/in`` and a ``robot/<name>/out`` topic; static
         entities (watchtowers, traffic lights, Duckiecams) have only
         ``robot/<name>/in``.
@@ -47,6 +48,8 @@ def discover_entities(
         if not match:
             continue
         name = match.group(1)
+        if name == _GYM_WORLD_TOPIC_NAME:
+            continue
         if f"robot/{name}/out" in topics:
             vehicles.append(name)
         else:
@@ -90,7 +93,7 @@ class SimulatedEntity:
     """A read-only simulated entity that streams sensor data.
 
     This class represents any entity in the Duckiematrix that publishes
-    a ``WorldInput`` stream (``robot/<name>/in``) but has no actuators —
+    a ``WorldInput`` stream (``robot/<name>/in``) but has no actuators -
     for example a watchtower, traffic light, or Duckiecam.
 
     Use :py:meth:`attach` to register a callback that fires each
@@ -127,7 +130,11 @@ class SimulatedEntity:
         """
         self._name = name
         self._world_input = DTPSWorldInput(
-            host, port, name, "", path_prefix=("robot",),
+            host,
+            port,
+            name,
+            "",
+            path_prefix=("robot",),
         )
 
     @property
