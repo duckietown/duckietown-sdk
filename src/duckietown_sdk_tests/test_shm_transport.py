@@ -41,7 +41,6 @@ class ShmTransportTests(unittest.TestCase):
             memory_map_ = mmap(file_descriptor, layout.total_size)
             try:
                 memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(layout)
-                memory_map_.flush()
             finally:
                 memory_map_.close()
         finally:

@@ -369,7 +369,6 @@ class ShmWorldOutput(WorldOutput):
             fallback_layout=self._layout,
         )
         if layout.total_size > self._layout.total_size:
-            memory_map_.flush()
             memory_map_.close()
             self._memory_map = _open_memory_map(
                 self._shm_path,
@@ -397,7 +396,6 @@ class ShmWorldOutput(WorldOutput):
     ) -> None:
         memory_map_ = self._memory_map
         if memory_map_ is not None:
-            memory_map_.flush()
             memory_map_.close()
         file_descriptor = os.open(self._shm_path, os.O_RDWR)
         try:
@@ -415,7 +413,6 @@ class ShmWorldOutput(WorldOutput):
             world_input_length=world_input_length,
             world_output_length=0,
         )
-        memory_map_.flush()
 
     def _start(self) -> None:
         """Open the SHM file and the SDK to engine FIFO."""
@@ -490,7 +487,6 @@ class ShmWorldOutput(WorldOutput):
             world_input_length=world_input_length,
             world_output_length=world_output_length,
         )
-        memory_map_.flush()
         # Signal the engine.
         try:
             os.write(self._sdk_to_engine_file_descriptor, b"\x01")
