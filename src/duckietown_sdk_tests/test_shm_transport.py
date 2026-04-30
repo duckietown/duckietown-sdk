@@ -2,6 +2,7 @@
 
 import os
 import select
+import struct
 import tempfile
 import unittest
 from mmap import ACCESS_READ, mmap
@@ -26,6 +27,9 @@ from duckietown.sdk.middleware.shm.components import (
     ShmWorldInput,
     ShmWorldOutput,
 )
+
+_TIMESTAMP_SIGNAL_FMT = "<Q"
+_TIMESTAMP_SIGNAL_SIZE = struct.calcsize(_TIMESTAMP_SIGNAL_FMT)
 
 
 class ShmTransportTests(unittest.TestCase):
@@ -152,7 +156,10 @@ class ShmTransportTests(unittest.TestCase):
                     world_input_message,
                     grown_layout,
                 )
-                os.write(engine_to_sdk_fd, b"\x01")
+                os.write(
+                    engine_to_sdk_fd,
+                    struct.pack(_TIMESTAMP_SIGNAL_FMT, 123456789),
+                )
 
                 self.assertTrue(received_event.wait(2.0))
                 self.assertEqual(received_messages[0]["session_id"], 11)
@@ -173,7 +180,12 @@ class ShmTransportTests(unittest.TestCase):
                 )
                 ready, _, _ = select.select([sdk_to_engine_fd], [], [], 1.0)
                 self.assertTrue(ready)
-                self.assertEqual(os.read(sdk_to_engine_fd, 1), b"\x01")
+                signal = os.read(sdk_to_engine_fd, _TIMESTAMP_SIGNAL_SIZE)
+                self.assertEqual(len(signal), _TIMESTAMP_SIGNAL_SIZE)
+                self.assertGreater(
+                    struct.unpack(_TIMESTAMP_SIGNAL_FMT, signal)[0],
+                    0,
+                )
 
                 file_descriptor = os.open(shm_path, os.O_RDONLY)
                 try:
@@ -242,7 +254,12 @@ class ShmTransportTests(unittest.TestCase):
                 world_output.publish(large_message)
                 ready, _, _ = select.select([sdk_to_engine_fd], [], [], 1.0)
                 self.assertTrue(ready)
-                self.assertEqual(os.read(sdk_to_engine_fd, 1), b"\x01")
+                signal = os.read(sdk_to_engine_fd, _TIMESTAMP_SIGNAL_SIZE)
+                self.assertEqual(len(signal), _TIMESTAMP_SIGNAL_SIZE)
+                self.assertGreater(
+                    struct.unpack(_TIMESTAMP_SIGNAL_FMT, signal)[0],
+                    0,
+                )
 
                 file_descriptor = os.open(shm_path, os.O_RDONLY)
                 try:

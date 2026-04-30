@@ -4,6 +4,7 @@ __all__ = ["GenericDTPSPublisher", "GenericDTPSSubscriber"]
 
 import asyncio
 import threading
+import time
 import traceback
 from asyncio import CancelledError, Queue
 from collections.abc import Awaitable, Callable, Coroutine
@@ -15,9 +16,72 @@ from duckietown_messages.base import BaseMessage
 
 from duckietown.sdk import logger
 from duckietown.sdk.middleware.base import GenericPublisher, GenericSubscriber
+from duckietown.sdk.middleware.timing_profiler import TimingProfiler
 
 Host = str
 Port = int
+
+_DTPS_TIMING_KEY = "__dtps_timing__"
+
+
+def _get_message_session_id(message: Any) -> int | None:  # noqa: ANN401
+    if isinstance(message, dict):
+        session_id = message.get("session_id")
+    else:
+        session_id = getattr(message, "session_id", None)
+    return session_id if isinstance(session_id, int) else None
+
+
+def _attach_dtps_timing_metadata(message: Any, **metadata: int) -> Any:  # noqa: ANN401
+    if isinstance(message, BaseMessage):
+        native_message: Any = message.model_dump()
+    else:
+        native_message = message
+    if not isinstance(native_message, dict):
+        return message
+    timing = native_message.get(_DTPS_TIMING_KEY)
+    timing_dict = dict(timing) if isinstance(timing, dict) else {}
+    for key, value in metadata.items():
+        if isinstance(value, int):
+            timing_dict[key] = value
+    if not timing_dict:
+        return native_message
+    enriched_message = dict(native_message)
+    enriched_message[_DTPS_TIMING_KEY] = timing_dict
+    return enriched_message
+
+
+def _get_dtps_timing_metadata(message: Any) -> dict[str, int]:  # noqa: ANN401
+    if not isinstance(message, dict):
+        return {}
+    timing = message.get(_DTPS_TIMING_KEY)
+    if not isinstance(timing, dict):
+        return {}
+    return {
+        key: value for key, value in timing.items() if isinstance(value, int)
+    }
+
+
+def _strip_dtps_timing_metadata(message: Any) -> Any:  # noqa: ANN401
+    if not isinstance(message, dict) or _DTPS_TIMING_KEY not in message:
+        return message
+    stripped_message = dict(message)
+    stripped_message.pop(_DTPS_TIMING_KEY, None)
+    return stripped_message
+
+
+def _observe_dtps_delta(
+    profiler: TimingProfiler,
+    key: str,
+    end_ns: int,
+    start_ns: Any,  # noqa: ANN401
+) -> None:
+    if not isinstance(start_ns, int):
+        return
+    profiler.observe(
+        key,
+        max(0.0, (end_ns - start_ns) / 1_000_000.0),
+    )
 
 
 class DTPS:
@@ -121,9 +185,9 @@ class DTPSConnector:
         self._loop = loop
 
     @staticmethod
-    async def _task(coroutine: Coroutine) -> None:
+    async def _task(coroutine: Coroutine) -> Any:  # noqa: ANN401
         try:
-            await coroutine
+            return await coroutine
         except Exception:  # noqa: BLE001
             logger.error(f"Error in task: {coroutine.__name__}")
             traceback.print_exc()
@@ -168,6 +232,7 @@ class GenericDTPSSubscriber(GenericSubscriber):
     _connector: DTPSConnector
     _frequency: float | None
     _path_prefix: tuple[str, ...]
+    _profiler: TimingProfiler
     _subscription: SubscriptionInterface | None
     _topic: tuple[str, ...]
 
@@ -186,13 +251,37 @@ class GenericDTPSSubscriber(GenericSubscriber):
         self._connector = DTPS.get_connector(host, port)
         self._frequency = frequency or None
         self._path_prefix = path_prefix
+        self._profiler = TimingProfiler(
+            "DTPS Subscriber Profiling Information",
+        )
         self._subscription = None
         self._topic = topic
 
+    def enable_profiling(self, status: bool = True) -> None:
+        """Enable or disable DTPS profiling."""
+        self._profiler.enable(status=status)
+
+    def print_profiling(self, logger_=logger) -> None:  # noqa: ANN001
+        """Log DTPS profiling information."""
+        self._profiler.log(logger_)
+
     def _get_callback(self) -> Callable[[RawData], Awaitable[None]]:
         async def callback(data: RawData) -> None:
-            message = data.get_as_native_object()
-            self._callback(message)
+            callback_received_at_ns = time.perf_counter_ns()
+            with self._profiler.profile("[dtps-subscriber]:deserialize"):
+                message = data.get_as_native_object()
+            timing = _get_dtps_timing_metadata(message)
+            _observe_dtps_delta(
+                self._profiler,
+                "[dtps-subscriber]:engine-send-called-to-receive",
+                callback_received_at_ns,
+                timing.get("engine_send_called_ns"),
+            )
+            message = _strip_dtps_timing_metadata(message)
+            with self._profiler.profile(
+                "[dtps-subscriber]:callback-dispatch",
+            ):
+                self._callback(message)
 
         return callback
 
@@ -215,7 +304,7 @@ class GenericDTPSSubscriber(GenericSubscriber):
     def _stop(self) -> None:
         if self._subscription is not None:
             coroutine = self._subscription.unsubscribe()
-            self._connector.arun(coroutine)
+            self._connector.arun(coroutine, block=True)
             self._subscription = None
 
 
@@ -226,6 +315,7 @@ class GenericDTPSPublisher(GenericPublisher):
     _connector: DTPSConnector
     _override_message: Any
     _path_prefix: tuple[str, ...]
+    _profiler: TimingProfiler
     _queue: Queue
     _topic: tuple[str, ...]
 
@@ -243,10 +333,25 @@ class GenericDTPSPublisher(GenericPublisher):
         self._topic = topic
         self._path_prefix = path_prefix
         self._override_message = None
-        self._queue = Queue(self._MAX_QUEUE_SIZE)
+        self._profiler = TimingProfiler(
+            "DTPS Publisher Profiling Information",
+        )
         self._connector = DTPS.get_connector(host, port)
+        queue = self._connector.arun(self._create_queue(), block=True)
+        if queue is None:
+            message = "Could not initialize DTPS publisher queue."
+            raise RuntimeError(message)
+        self._queue = queue
         coroutine = self._publisher()
         self._connector.arun(coroutine)
+
+    def enable_profiling(self, status: bool = True) -> None:
+        """Enable or disable DTPS profiling."""
+        self._profiler.enable(status=status)
+
+    def print_profiling(self, logger_=logger) -> None:  # noqa: ANN001
+        """Log DTPS profiling information."""
+        self._profiler.log(logger_)
 
     @staticmethod
     def _serialize_message(message: Any) -> RawData:  # noqa: ANN401
@@ -256,6 +361,9 @@ class GenericDTPSPublisher(GenericPublisher):
             return message.to_rawdata()
         return RawData.cbor_from_native_object(message)
 
+    async def _create_queue(self) -> Queue:
+        return Queue(self._MAX_QUEUE_SIZE)
+
     async def _publisher(self) -> None:
         queue = self._connector.context.navigate(
             *self._path_prefix,
@@ -264,8 +372,20 @@ class GenericDTPSPublisher(GenericPublisher):
         )
         async with queue.publisher_context() as publisher:
             while True:
-                raw_data = await self._queue.get()
-                await publisher.publish(raw_data)
+                raw_data, publish_called_at_ns = await self._queue.get()
+                publish_started_at_ns = time.perf_counter_ns()
+                self._profiler.observe(
+                    "[dtps-publisher]:publish-called-to-network-start",
+                    max(
+                        0.0,
+                        (publish_started_at_ns - publish_called_at_ns)
+                        / 1_000_000.0,
+                    ),
+                )
+                with self._profiler.profile(
+                    "[dtps-publisher]:network-publish",
+                ):
+                    await publisher.publish(raw_data)
 
     def publish(self, data: Any) -> None:  # noqa: ANN401
         """Publish data.
@@ -284,7 +404,15 @@ class GenericDTPSPublisher(GenericPublisher):
         message = (
             data if not self._override_message else self._override_message
         )
-        raw_data = self._serialize_message(message)
+        publish_called_at_ns = time.perf_counter_ns()
+        if _get_message_session_id(message) is not None:
+            message = _attach_dtps_timing_metadata(
+                message,
+                host_publish_called_ns=publish_called_at_ns,
+            )
+        with self._profiler.profile("[dtps-publisher]:serialize"):
+            raw_data = self._serialize_message(message)
         # publish message
-        coroutine = self._queue.put(raw_data)
-        self._connector.arun(coroutine)
+        coroutine = self._queue.put((raw_data, publish_called_at_ns))
+        with self._profiler.profile("[dtps-publisher]:schedule-put"):
+            self._connector.arun(coroutine)
