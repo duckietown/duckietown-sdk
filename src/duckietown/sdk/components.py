@@ -11,7 +11,7 @@ class AbstractComponent(ABC):
 
     def __del__(self) -> None:
         """Stop the component if it is running."""
-        if self.has_started:
+        if getattr(self, "has_started", False):
             with suppress(Exception):
                 self.stop()
 

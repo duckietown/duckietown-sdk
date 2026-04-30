@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 from duckietown_messages.actuators import CarLights, DifferentialPWM
 from duckietown_messages.colors import RGBA
+from duckietown_messages.standard import Boolean
 
 from duckietown.sdk.middleware.components import (
     Camera,
@@ -121,11 +122,12 @@ class DTPSLights(Lights, GenericDTPSPublisher):
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize the DTPS lights component."""
-        super().__init__(
-            host,
-            port,
-            robot_name,
-            ("actuator", "lights", actuator_name, "pattern"),
+        GenericDTPSPublisher.__init__(
+            self,
+            host=host,
+            port=port,
+            robot_name=robot_name,
+            topic=("actuator", "lights", actuator_name, "pattern"),
             **kwargs,
         )
         front_left = RGBA(r=1, g=1, b=1, a=0.2)  # White
@@ -183,13 +185,15 @@ class DTPSMotors(Motors, GenericDTPSPublisher):
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize the DTPS motors component."""
-        super().__init__(
-            host,
-            port,
-            robot_name,
-            ("actuator", "wheels", actuator_name, "pwm_filtered"),
+        GenericDTPSPublisher.__init__(
+            self,
+            host=host,
+            port=port,
+            robot_name=robot_name,
+            topic=("actuator", "wheels", actuator_name, "pwm_filtered"),
             **kwargs,
         )
+        self.differential_pwm = DifferentialPWM(left=0, right=0)
 
     def _stop(self) -> None:
         data = DifferentialPWM(left=self._OFF, right=self._OFF)
@@ -252,13 +256,15 @@ class DTPSStateResetFlag(StateResetFlag, GenericDTPSPublisher):
         **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize the DTPS state reset flag component."""
-        super().__init__(
-            host,
-            port,
-            robot_name,
-            ("state", "reset"),
+        GenericDTPSPublisher.__init__(
+            self,
+            host=host,
+            port=port,
+            robot_name=robot_name,
+            topic=("state", "reset"),
             **kwargs,
         )
+        self.boolean = Boolean(data=False)
 
 
 class DTPSTimeOfFlightSensor(TimeOfFlightSensor, GenericDTPSSubscriber):

@@ -28,8 +28,10 @@ messages than the current capacities can hold.
 Signalling
 ----------
 Two named FIFOs live in the same directory as the SHM file:
-  <shm_path>.e2s - engine writes 1 byte after WorldInput is ready
-  <shm_path>.s2e - SDK writes 1 byte after WorldOutput is ready
+    <shm_path>.e2s - engine writes an 8-byte monotonic timestamp after
+                                     WorldInput is ready
+    <shm_path>.s2e - SDK writes an 8-byte monotonic timestamp after
+                                     WorldOutput is ready
 
 Usage (set DTSHELL_SHM_PATH in the environment)
 ------------------------------------------
@@ -42,6 +44,8 @@ __all__ = ["ShmWorldInput", "ShmWorldOutput"]
 
 import logging
 import os
+import struct
+import time
 from mmap import mmap
 from pathlib import Path
 from threading import Thread, current_thread
@@ -59,8 +63,11 @@ from duckietown_messages.simulation.shm_layout import (
 )
 
 from duckietown.sdk.middleware.components import WorldInput, WorldOutput
+from duckietown.sdk.middleware.timing_profiler import TimingProfiler
 
 _DEFAULT_LAYOUT = default_shm_layout()
+_TIMESTAMP_SIGNAL_FMT = "<Q"
+_TIMESTAMP_SIGNAL_SIZE = struct.calcsize(_TIMESTAMP_SIGNAL_FMT)
 
 _logger = logging.getLogger(__name__)
 
@@ -91,6 +98,16 @@ def _open_memory_map(shm_path: str, size: int) -> mmap:
         os.close(file_descriptor)
 
 
+def _read_exact(file_descriptor: int, size: int) -> bytes:
+    buffer = bytearray()
+    while len(buffer) < size:
+        chunk = os.read(file_descriptor, size - len(buffer))
+        if not chunk:
+            break
+        buffer.extend(chunk)
+    return bytes(buffer)
+
+
 class ShmWorldInput(WorldInput):
     """Shared-memory world-input subscriber.
 
@@ -112,6 +129,7 @@ class ShmWorldInput(WorldInput):
     _shm_path: str
     _thread: Thread
     _layout: ShmLayout
+    _profiler: TimingProfiler
 
     def __init__(
         self,
@@ -138,11 +156,22 @@ class ShmWorldInput(WorldInput):
         self._sdk_to_engine_file_descriptor = None
         self._running = False
         self._layout = _DEFAULT_LAYOUT
+        self._profiler = TimingProfiler(
+            "SHM WorldInput Profiling Information",
+        )
         self._thread = Thread(
             target=self._reader_loop,
             daemon=True,
             name="ShmWorldInput-reader",
         )
+
+    def enable_profiling(self, status: bool = True) -> None:
+        """Enable or disable SHM profiling."""
+        self._profiler.enable(status=status)
+
+    def print_profiling(self, logger: logging.Logger | None = None) -> None:
+        """Log SHM profiling information."""
+        self._profiler.log(logger or _logger)
 
     def _sync_layout(self) -> tuple[ShmLayout, int, int]:
         memory_map_ = self._memory_map
@@ -237,6 +266,62 @@ class ShmWorldInput(WorldInput):
             return None
         return cbor_bytes
 
+    def _prime_current_world_input(self) -> None:
+        """Load the current WorldInput snapshot if startup missed the FIFO signal."""
+        try:
+            cbor_bytes = self._read_world_input_bytes()
+            if cbor_bytes is None:
+                return
+            raw_data = RawData(cbor_bytes, "application/cbor")
+            native_message = raw_data.get_as_native_object()
+            if not isinstance(native_message, dict):
+                return
+            session_id = native_message.get("session_id")
+            latest = self.latest
+            latest_session_id = None
+            if isinstance(latest, dict):
+                latest_session_id = latest.get("session_id")
+            if isinstance(session_id, int) and session_id == latest_session_id:
+                return
+            self._callback(native_message)
+        except Exception:
+            _logger.exception("Error priming WorldInput from SHM.")
+
+    def get(
+        self,
+        *,
+        block: bool = False,
+        clean_up: bool = False,
+        timeout: float | None = None,
+    ) -> Any:  # noqa: ANN401
+        """Get the latest WorldInput, polling SHM snapshots if signals were missed."""
+        if not self.has_started:
+            self.start()
+
+        self._prime_current_world_input()
+
+        if not block:
+            data = self._grab_current()
+            if clean_up:
+                self.stop()
+            return data
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+        data = self._grab_current()
+        while data is None:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                break
+            wait_timeout = 0.1 if remaining is None else min(0.1, remaining)
+            if self._event.wait(wait_timeout):
+                self._event.clear()
+            self._prime_current_world_input()
+            data = self._grab_current()
+
+        if clean_up:
+            self.stop()
+        return data
+
     def _start(self) -> None:
         """Open the SHM file and FIFOs, then start the reader thread."""
         self._layout = _load_initial_layout(self._shm_path, self._layout)
@@ -255,6 +340,7 @@ class ShmWorldInput(WorldInput):
             self._sdk_to_engine_path,
             os.O_RDWR,
         )
+        self._prime_current_world_input()
         self._running = True
         self._thread.start()
 
@@ -262,10 +348,13 @@ class ShmWorldInput(WorldInput):
         """Signal the reader thread to exit."""
         self._running = False
         # Unblock the reader if it is blocked on os.read.
-        # Writing a byte to the read end will wake it.
+        # Writing a zero timestamp to the read end will wake it.
         try:
             if self._engine_to_sdk_file_descriptor is not None:
-                os.write(self._engine_to_sdk_file_descriptor, b"\x00")
+                os.write(
+                    self._engine_to_sdk_file_descriptor,
+                    struct.pack(_TIMESTAMP_SIGNAL_FMT, 0),
+                )
         except OSError:
             pass
         if self._thread.is_alive() and current_thread() is not self._thread:
@@ -287,7 +376,13 @@ class ShmWorldInput(WorldInput):
         fifo_file_descriptor = self._engine_to_sdk_file_descriptor
         while self._running:
             try:
-                signal = os.read(fifo_file_descriptor, 1)
+                with self._profiler.profile(
+                    "[shm-world-input]:fifo-read",
+                ):
+                    signal = _read_exact(
+                        fifo_file_descriptor,
+                        _TIMESTAMP_SIGNAL_SIZE,
+                    )
             except OSError:
                 if not self._running:
                     return
@@ -295,13 +390,31 @@ class ShmWorldInput(WorldInput):
                 continue
             if not signal:
                 continue
-            if signal == b"\x00":
+            if len(signal) != _TIMESTAMP_SIGNAL_SIZE:
+                _logger.debug(
+                    "Ignoring short engine-to-SDK signal of %d byte(s).",
+                    len(signal),
+                )
+                continue
+            engine_sent_at_ns = struct.unpack(_TIMESTAMP_SIGNAL_FMT, signal)[0]
+            if engine_sent_at_ns == 0:
                 if not self._running:
                     return
                 continue
+            self._profiler.observe(
+                "[shm-world-input]:engine-signal-to-sdk-read",
+                max(
+                    0.0,
+                    (time.perf_counter_ns() - engine_sent_at_ns)
+                    / 1_000_000,
+                ),
+            )
             # Read WorldInput from the memory map.
             try:
-                cbor_bytes = self._read_world_input_bytes()
+                with self._profiler.profile(
+                    "[shm-world-input]:read-payload",
+                ):
+                    cbor_bytes = self._read_world_input_bytes()
                 if cbor_bytes is None:
                     continue
             except Exception:
@@ -309,15 +422,29 @@ class ShmWorldInput(WorldInput):
                 continue
             # Deserialize
             try:
-                raw_data = RawData(cbor_bytes, "application/cbor")
-                native_message = raw_data.get_as_native_object()
+                with self._profiler.profile(
+                    "[shm-world-input]:deserialize",
+                ):
+                    raw_data = RawData(cbor_bytes, "application/cbor")
+                    native_message = raw_data.get_as_native_object()
                 if not isinstance(native_message, dict):
                     _logger.warning(
                         "Ignoring non-dict WorldInput payload of type %s.",
                         type(native_message).__name__,
                     )
                     continue
-                self._callback(native_message)
+                with self._profiler.profile(
+                    "[shm-world-input]:callback-dispatch",
+                ):
+                    self._callback(native_message)
+                self._profiler.observe(
+                    "[shm-world-input]:engine-signal-to-callback-complete",
+                    max(
+                        0.0,
+                        (time.perf_counter_ns() - engine_sent_at_ns)
+                        / 1_000_000,
+                    ),
+                )
             except Exception:
                 _logger.exception("Error deserializing WorldInput.")
 
@@ -335,6 +462,7 @@ class ShmWorldOutput(WorldOutput):
     _sdk_to_engine_path: str
     _shm_path: str
     _layout: ShmLayout
+    _profiler: TimingProfiler
 
     def __init__(
         self,
@@ -358,6 +486,17 @@ class ShmWorldOutput(WorldOutput):
         self._memory_map = None
         self._sdk_to_engine_file_descriptor = None
         self._layout = _DEFAULT_LAYOUT
+        self._profiler = TimingProfiler(
+            "SHM WorldOutput Profiling Information",
+        )
+
+    def enable_profiling(self, status: bool = True) -> None:
+        """Enable or disable SHM profiling."""
+        self._profiler.enable(status=status)
+
+    def print_profiling(self, logger: logging.Logger | None = None) -> None:
+        """Log SHM profiling information."""
+        self._profiler.log(logger or _logger)
 
     def _sync_layout(self) -> tuple[ShmLayout, int, int]:
         memory_map_ = self._memory_map
@@ -449,13 +588,15 @@ class ShmWorldOutput(WorldOutput):
         ):
             message = "ShmWorldOutput not started. Cannot publish data."
             raise RuntimeError(message)
-        if isinstance(data, WorldOutputMessage):
-            raw_data = data.to_rawdata()
-        else:
-            raw_data = RawData.cbor_from_native_object(data)
+        with self._profiler.profile("[shm-world-output]:serialize"):
+            if isinstance(data, WorldOutputMessage):
+                raw_data = data.to_rawdata()
+            else:
+                raw_data = RawData.cbor_from_native_object(data)
         cbor_bytes: bytes = raw_data.content
         world_output_length = len(cbor_bytes)
-        layout, world_input_length, _ = self._sync_layout()
+        with self._profiler.profile("[shm-world-output]:sync-layout"):
+            layout, world_input_length, _ = self._sync_layout()
         target_layout = resize_shm_layout(
             layout,
             min_world_output_capacity=world_output_length,
@@ -472,24 +613,32 @@ class ShmWorldOutput(WorldOutput):
         if memory_map_ is None:  # pragma: no cover
             message = "SHM memory map not initialized."
             raise RuntimeError(message)
-        memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
-            self._layout,
-            world_input_length=world_input_length,
-            world_output_length=0,
-        )
-        memory_map_[
-            self._layout.world_output_offset : (
-                self._layout.world_output_offset + world_output_length
+        with self._profiler.profile("[shm-world-output]:write-payload"):
+            memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
+                self._layout,
+                world_input_length=world_input_length,
+                world_output_length=0,
             )
-        ] = cbor_bytes
-        memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
-            self._layout,
-            world_input_length=world_input_length,
-            world_output_length=world_output_length,
-        )
+            memory_map_[
+                self._layout.world_output_offset : (
+                    self._layout.world_output_offset + world_output_length
+                )
+            ] = cbor_bytes
+            memory_map_[:SHM_HEADER_SIZE] = pack_shm_header(
+                self._layout,
+                world_input_length=world_input_length,
+                world_output_length=world_output_length,
+            )
         # Signal the engine.
         try:
-            os.write(self._sdk_to_engine_file_descriptor, b"\x01")
+            with self._profiler.profile("[shm-world-output]:fifo-write"):
+                os.write(
+                    self._sdk_to_engine_file_descriptor,
+                    struct.pack(
+                        _TIMESTAMP_SIGNAL_FMT,
+                        time.perf_counter_ns(),
+                    ),
+                )
         except OSError:
             _logger.exception(
                 "Failed to signal engine via SDK to engine FIFO.",
