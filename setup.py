@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import sys
 
-from setuptools import find_packages, setup
+from setuptools import find_packages, setup  # type: ignore[import-untyped]
 
 # :==> Fill in your project data here
 # The package name is the name on PyPI
@@ -23,8 +25,16 @@ def get_version_from_source(filename):
     with open(filename) as f:
         for line in f:
             if line.startswith("__version__"):
-                version = ast.parse(line).body[0].value.s
-                break
+                assignment = ast.parse(line).body[0]
+                if not isinstance(assignment, ast.Assign):
+                    continue
+                value = assignment.value
+                if isinstance(value, ast.Constant) and isinstance(
+                    value.value,
+                    str,
+                ):
+                    version = value.value
+                    break
         else:
             raise ValueError("No version found in %r." % filename)
     if version is None:
@@ -35,10 +45,10 @@ def get_version_from_source(filename):
 version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
 install_requires = [
-    "duckietown-messages>=0.0.16,<0.1",
+    "duckietown-messages>=0.1.0,<0.2",
+    "cbor2",
+    "dtps-http>1.6.0,<2",
 ]
-tests_require = []
-
 # we require pillow on MacOS and PyTurboJPEG on Linux
 if sys.platform == "linux":
     install_requires.append("PyTurboJPEG>=1.7.3,<2")
@@ -47,19 +57,14 @@ elif sys.platform == "darwin":
 
 # compile description
 underline = "=" * (len(package_name) + len(short_description) + 2)
-description = """
-{name}: {short}
+description = f"""
+{package_name}: {short_description}
 {underline}
 
-{long}
-""".format(
-    name=package_name,
-    short=short_description,
-    long=full_description,
-    underline=underline,
-)
+{full_description}
+"""
 
-console_scripts = []
+console_scripts: list[str] = []
 
 # setup package
 setup(
@@ -67,12 +72,11 @@ setup(
     author=maintainer,
     author_email=maintainer_email,
     url=library_webpage,
-    tests_require=tests_require,
     install_requires=install_requires,
     package_dir={"": "src"},
-    packages=[f"duckietown.{p}" for p in find_packages('./src/duckietown')],
+    packages=[f"duckietown.{p}" for p in find_packages("./src/duckietown")],
     long_description=description,
-    long_description_content_type='text/markdown',
+    long_description_content_type="text/markdown",
     version=version,
     entry_points={"console_scripts": console_scripts},
 )

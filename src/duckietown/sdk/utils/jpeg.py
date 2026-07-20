@@ -1,63 +1,156 @@
-# use turbojpeg on linux, pillow on macos
+"""JPEG utilities."""
+
 import io
 import sys
 from abc import ABC, abstractmethod
 
 import numpy as np
 
-from duckietown.sdk.types import BGRImage
 
-
-class JPEGAbs(ABC):
-
-    @classmethod
-    @abstractmethod
-    def encode(cls, image: BGRImage) -> bytes:
-        pass
+class AbstractJPEG(ABC):
+    """Abstract base class for JPEG encoding and decoding."""
 
     @classmethod
     @abstractmethod
-    def decode(cls, data: bytes) -> BGRImage:
-        pass
+    def encode(cls, image: np.ndarray) -> bytes:
+        """Encode a BGR image to JPEG format.
+
+        Args:
+            image (np.ndarray): The BGR image to encode.
+
+        Returns:
+            bytes: The encoded JPEG image.
+
+        """
+
+    @classmethod
+    @abstractmethod
+    def decode(cls, data: bytes) -> np.ndarray:
+        """Decode a JPEG image to BGR format.
+
+        Args:
+            data (bytes): The encoded JPEG image.
+
+        Raises:
+            RuntimeError: If decoding fails or the image format is
+            unsupported.
+
+        Returns:
+            np.ndarray: The decoded BGR image.
+
+        """
 
 
 if sys.platform == "linux":
     import turbojpeg
-    jpeg: turbojpeg.TurboJPEG = turbojpeg.TurboJPEG()
 
-    class JPEG(JPEGAbs):
+    jpeg = turbojpeg.TurboJPEG()
 
-        @classmethod
-        def encode(cls, image: BGRImage) -> bytes:
-            return jpeg.encode(image)
-
+    class JPEG(AbstractJPEG):
+        """JPEG encoding and decoding."""
 
         @classmethod
-        def decode(cls, data: bytes) -> BGRImage:
+        def encode(cls, bgr_image: np.ndarray) -> bytes:
+            """Encode a BGR image to JPEG format.
+
+            Args:
+                bgr_image (np.ndarray): The BGR image to encode.
+
+            Returns:
+                bytes: The encoded JPEG image.
+
+            """
+            return jpeg.encode(bgr_image)
+
+        @classmethod
+        def decode(cls, data: bytes) -> np.ndarray:
+            """Decode a JPEG image to BGR format.
+
+            Args:
+                data (bytes): The encoded JPEG image.
+
+            Returns:
+                np.ndarray: The decoded BGR image.
+
+            """
             return jpeg.decode(data)
 
 elif sys.platform == "darwin":
     from PIL import Image
 
-    class JPEG(JPEGAbs):
+    class JPEG(AbstractJPEG):
+        """JPEG encoding and decoding."""
 
         @classmethod
-        def encode(cls, image: BGRImage) -> bytes:
-            buf: io.BytesIO = io.BytesIO()
-            Image.fromarray(image).save(buf, format="JPEG")
-            return buf.getvalue()
+        def encode(cls, bgr_image: np.ndarray) -> bytes:
+            """Encode a BGR image to JPEG format.
+
+            Args:
+                bgr_image (np.ndarray): The BGR image to encode.
+
+            Returns:
+                bytes: The encoded JPEG image.
+
+            """
+            buffer = io.BytesIO()
+            rgb_image = bgr_image[..., ::-1]
+            image = Image.fromarray(rgb_image)
+            image.save(buffer, format="JPEG")
+            return buffer.getvalue()
 
         @classmethod
-        def decode(cls, data: bytes) -> BGRImage:
-            return np.array(Image.open(io.BytesIO(data)))
+        def decode(cls, data: bytes) -> np.ndarray:
+            """Decode a JPEG image to BGR format.
+
+            Args:
+                data (bytes): The encoded JPEG image.
+
+            Returns:
+                np.ndarray: The decoded BGR image.
+
+            """
+            buffer = io.BytesIO(data)
+            image = Image.open(buffer)
+            rgb_image = np.array(image)
+            return rgb_image[..., ::-1]
+
 else:
 
-    class JPEG(JPEGAbs):
+    class JPEG(AbstractJPEG):
+        """JPEG encoding and decoding."""
 
         @classmethod
-        def encode(cls, image: BGRImage) -> bytes:
-            raise RuntimeError(f"Method JPEG.encode() not implemented for system '{sys.platform}'")
+        def encode(cls, _: np.ndarray) -> bytes:
+            """Encode a BGR image to JPEG format.
+
+            Args:
+                _: The BGR image to encode (unused - platform
+                    not supported).
+
+            Raises:
+                RuntimeError: Always raised on unsupported platforms.
+
+            Returns:
+                bytes: The encoded JPEG image.
+
+            """
+            message = f"Method not implemented for '{sys.platform}'."
+            raise RuntimeError(message)
 
         @classmethod
-        def decode(cls, data: bytes) -> BGRImage:
-            raise RuntimeError(f"Method JPEG.decode() not implemented for system '{sys.platform}'")
+        def decode(cls, _: bytes) -> np.ndarray:
+            """Decode a JPEG image to BGR format.
+
+            Args:
+                _: The encoded JPEG image (unused - platform
+                    not supported).
+
+            Raises:
+                RuntimeError: Always raised on unsupported platforms.
+
+            Returns:
+                np.ndarray: The decoded BGR image.
+
+            """
+            message = f"Method not implemented for '{sys.platform}'."
+            raise RuntimeError(message)
