@@ -47,7 +47,7 @@ version = get_version_from_source("src/duckietown/sdk/__init__.py")
 install_requires = [
     "duckietown-messages>=0.1.0,<0.2",
     "cbor2",
-    "dtps-http>1.6.0,<2",
+    "dtps-http>=1.6.1,<2",
 ]
 # we require pillow on MacOS and PyTurboJPEG on Linux
 if sys.platform == "linux":

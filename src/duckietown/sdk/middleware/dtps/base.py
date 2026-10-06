@@ -10,7 +10,12 @@ from asyncio import CancelledError, Queue
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, ClassVar
 
-from dtps import DTPSContext, SubscriptionInterface, context
+from dtps import (
+    DTPSContext,
+    PublisherInterface,
+    SubscriptionInterface,
+    context,
+)
 from dtps_http import RawData
 from duckietown_messages.base import BaseMessage
 
@@ -34,7 +39,7 @@ def _get_message_session_id(message: Any) -> int | None:  # noqa: ANN401
 
 def _attach_dtps_timing_metadata(message: Any, **metadata: int) -> Any:  # noqa: ANN401
     if isinstance(message, BaseMessage):
-        native_message: Any = message.model_dump()
+        native_message: Any = message.to_native()
     else:
         native_message = message
     if not isinstance(native_message, dict):
@@ -146,6 +151,8 @@ class DTPS:
         host: str,
         port: int,
         unix_socket: str | None = None,
+        *,
+        shared: bool = True,
     ) -> "DTPSConnector":
         """Get DTPS connector.
 
@@ -154,12 +161,20 @@ class DTPS:
             port (int): The port number.
             unix_socket (str | None, optional): The Unix socket path.
             Defaults to `None`.
+            shared (bool, optional): Reuse a cached connector. Defaults
+            to `True`; private connectors must close their context.
 
         Returns:
             DTPSConnector: The DTPS connector.
 
         """
         cls._init()
+        if not shared:
+            urls = cls._dtps_urls(host, port, unix_socket)
+            coroutine = context(urls=urls)
+            future = asyncio.run_coroutine_threadsafe(coroutine, cls._loop)
+            context_ = future.result()
+            return DTPSConnector(context_, cls._loop)
         # create a new connector if it doesn't exist
         if (host, port) not in cls._connectors:
             coroutine = cls._get_context(host, port, unix_socket)
@@ -230,9 +245,13 @@ class GenericDTPSSubscriber(GenericSubscriber):
     """Generic DTPS subscriber."""
 
     _connector: DTPSConnector
+    _connector_closed: bool
+    _endpoint: tuple[str, int]
     _frequency: float | None
     _path_prefix: tuple[str, ...]
     _profiler: TimingProfiler
+    _shm_path: str | None
+    _shm_only: bool
     _subscription: SubscriptionInterface | None
     _topic: tuple[str, ...]
 
@@ -245,19 +264,28 @@ class GenericDTPSSubscriber(GenericSubscriber):
         *,
         frequency: float = 0,
         path_prefix: tuple[str, ...] = (),
+        shm_path: str | None = None,
+        shm_only: bool = False,
     ) -> None:
         """Initialize the generic DTPS subscriber."""
         super().__init__(host, robot_name)
-        self._connector = DTPS.get_connector(host, port)
+        self._endpoint = (host, port)
+        self._connector_closed = False
+        if shm_only:
+            self._connector = DTPS.get_connector(host, port, shared=False)
+        else:
+            self._connector = DTPS.get_connector(host, port)
         self._frequency = frequency or None
         self._path_prefix = path_prefix
         self._profiler = TimingProfiler(
             "DTPS Subscriber Profiling Information",
         )
+        self._shm_path = shm_path
+        self._shm_only = shm_only
         self._subscription = None
         self._topic = topic
 
-    def enable_profiling(self, status: bool = True) -> None:
+    def enable_profiling(self, status: bool = True) -> None:  # noqa: FBT001, FBT002
         """Enable or disable DTPS profiling."""
         self._profiler.enable(status=status)
 
@@ -270,6 +298,8 @@ class GenericDTPSSubscriber(GenericSubscriber):
             callback_received_at_ns = time.perf_counter_ns()
             with self._profiler.profile("[dtps-subscriber]:deserialize"):
                 message = data.get_as_native_object()
+            if message is None and self._shm_only:
+                return
             timing = _get_dtps_timing_metadata(message)
             _observe_dtps_delta(
                 self._profiler,
@@ -281,7 +311,11 @@ class GenericDTPSSubscriber(GenericSubscriber):
             with self._profiler.profile(
                 "[dtps-subscriber]:callback-dispatch",
             ):
-                self._callback(message)
+                if self._shm_only:
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, self._callback, message)
+                else:
+                    self._callback(message)
 
         return callback
 
@@ -292,20 +326,44 @@ class GenericDTPSSubscriber(GenericSubscriber):
             *self._topic,
         )
         callback = self._get_callback()
-        self._subscription = await queue.subscribe(
-            callback,
-            max_frequency=self._frequency,
-        )
+        if self._shm_path is None:
+            self._subscription = await queue.subscribe(
+                callback,
+                max_frequency=self._frequency,
+            )
+        else:
+            self._subscription = await queue.subscribe(
+                callback,
+                max_frequency=self._frequency,
+                queue_size=1,
+                shm_path=self._shm_path,
+                shm_only=self._shm_only,
+            )
 
     def _start(self) -> None:
+        if self._shm_only and self._connector_closed:
+            self._connector = DTPS.get_connector(*self._endpoint, shared=False)
+            self._connector_closed = False
         coroutine = self._subscribe()
-        self._connector.arun(coroutine)
+        self._connector.arun(coroutine, block=self._shm_only)
 
     def _stop(self) -> None:
+        if self._shm_only:
+            self._connector.arun(self._stop_shm(), block=True)
+            return
         if self._subscription is not None:
             coroutine = self._subscription.unsubscribe()
             self._connector.arun(coroutine, block=True)
             self._subscription = None
+
+    async def _stop_shm(self) -> None:
+        try:
+            if self._subscription is not None:
+                await self._subscription.unsubscribe()
+        finally:
+            self._subscription = None
+            await self._connector.context.aclose()
+            self._connector_closed = True
 
 
 class GenericDTPSPublisher(GenericPublisher):
@@ -313,13 +371,18 @@ class GenericDTPSPublisher(GenericPublisher):
 
     _MAX_QUEUE_SIZE = 1
     _connector: DTPSConnector
+    _connector_closed: bool
+    _endpoint: tuple[str, int]
     _override_message: Any
     _path_prefix: tuple[str, ...]
     _profiler: TimingProfiler
     _queue: Queue
+    _publisher_task: asyncio.Task[None] | None
+    _shm_path: str | None
+    _shm_only: bool
     _topic: tuple[str, ...]
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         host: str,
         port: int,
@@ -327,6 +390,8 @@ class GenericDTPSPublisher(GenericPublisher):
         topic: tuple[str, ...],
         *,
         path_prefix: tuple[str, ...] = (),
+        shm_path: str | None = None,
+        shm_only: bool = False,
     ) -> None:
         """Initialize the generic DTPS publisher."""
         GenericPublisher.__init__(self, host, robot_name)
@@ -336,16 +401,59 @@ class GenericDTPSPublisher(GenericPublisher):
         self._profiler = TimingProfiler(
             "DTPS Publisher Profiling Information",
         )
-        self._connector = DTPS.get_connector(host, port)
+        self._shm_path = shm_path
+        self._shm_only = shm_only
+        self._endpoint = (host, port)
+        self._connector_closed = False
+        self._publisher_task = None
+        if shm_only:
+            self._connector = DTPS.get_connector(host, port, shared=False)
+        else:
+            self._connector = DTPS.get_connector(host, port)
         queue = self._connector.arun(self._create_queue(), block=True)
         if queue is None:
             message = "Could not initialize DTPS publisher queue."
             raise RuntimeError(message)
         self._queue = queue
-        coroutine = self._publisher()
-        self._connector.arun(coroutine)
+        if not shm_only:
+            coroutine = self._publisher()
+            self._connector.arun(coroutine)
 
-    def enable_profiling(self, status: bool = True) -> None:
+    def _start(self) -> None:
+        if self._shm_only:
+            if self._connector_closed:
+                self._connector = DTPS.get_connector(
+                    *self._endpoint,
+                    shared=False,
+                )
+                self._connector_closed = False
+            self._connector.arun(self._start_shm(), block=True)
+
+    async def _start_shm(self) -> None:
+        coroutine = DTPSConnector._task(self._publisher())  # noqa: SLF001
+        self._publisher_task = asyncio.create_task(coroutine)
+
+    def _stop(self) -> None:
+        if self._shm_only:
+            self._connector.arun(self._stop_shm(), block=True)
+
+    async def _stop_shm(self) -> None:
+        try:
+            if self._publisher_task is not None:
+                self._publisher_task.cancel()
+                await asyncio.gather(
+                    self._publisher_task,
+                    return_exceptions=True,
+                )
+                self._publisher_task = None
+            while not self._queue.empty():
+                self._queue.get_nowait()
+                self._queue.task_done()
+        finally:
+            await self._connector.context.aclose()
+            self._connector_closed = True
+
+    def enable_profiling(self, status: bool = True) -> None:  # noqa: FBT001, FBT002
         """Enable or disable DTPS profiling."""
         self._profiler.enable(status=status)
 
@@ -370,9 +478,19 @@ class GenericDTPSPublisher(GenericPublisher):
             self._robot_name,
             *self._topic,
         )
+        if self._shm_only:
+            await self._publish_pending(queue)
+            return
         async with queue.publisher_context() as publisher:
-            while True:
-                raw_data, publish_called_at_ns = await self._queue.get()
+            await self._publish_pending(publisher)
+
+    async def _publish_pending(
+        self,
+        publisher: DTPSContext | PublisherInterface,
+    ) -> None:
+        while True:
+            raw_data, publish_called_at_ns = await self._queue.get()
+            try:
                 publish_started_at_ns = time.perf_counter_ns()
                 self._profiler.observe(
                     "[dtps-publisher]:publish-called-to-network-start",
@@ -385,7 +503,24 @@ class GenericDTPSPublisher(GenericPublisher):
                 with self._profiler.profile(
                     "[dtps-publisher]:network-publish",
                 ):
-                    await publisher.publish(raw_data)
+                    if self._shm_path is None:
+                        await publisher.publish(raw_data)
+                    else:
+                        await publisher.publish(
+                            raw_data,
+                            shm_path=self._shm_path,
+                            shm_only=self._shm_only,
+                        )
+            finally:
+                self._queue.task_done()
+
+    async def _publish_shm(
+        self,
+        raw_data: RawData,
+        publish_called_at_ns: int,
+    ) -> None:
+        await self._queue.put((raw_data, publish_called_at_ns))
+        await self._queue.join()
 
     def publish(self, data: Any) -> None:  # noqa: ANN401
         """Publish data.
@@ -413,6 +548,9 @@ class GenericDTPSPublisher(GenericPublisher):
         with self._profiler.profile("[dtps-publisher]:serialize"):
             raw_data = self._serialize_message(message)
         # publish message
-        coroutine = self._queue.put((raw_data, publish_called_at_ns))
+        if self._shm_only:
+            coroutine = self._publish_shm(raw_data, publish_called_at_ns)
+        else:
+            coroutine = self._queue.put((raw_data, publish_called_at_ns))
         with self._profiler.profile("[dtps-publisher]:schedule-put"):
-            self._connector.arun(coroutine)
+            self._connector.arun(coroutine, block=self._shm_only)
