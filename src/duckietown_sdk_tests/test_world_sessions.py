@@ -7,13 +7,18 @@ from typing import Any, cast
 from unittest.mock import Mock, PropertyMock, patch
 
 import pytest
+from dtps_http import RawData
 
 from duckietown.sdk.middleware.dtps.base import (
     DTPS,
     DTPSConnector,
     GenericDTPSPublisher,
+    _attach_dtps_timing_metadata,
+    _get_dtps_timing_metadata,
+    _strip_dtps_timing_metadata,
 )
 from duckietown.sdk.middleware.dtps.components import DTPSWorldInput
+from duckietown.sdk.middleware.timing_profiler import TimingProfiler
 from duckietown.sdk.robots.duckiebot import DB21M
 from duckietown.sdk.robots.generic_vehicle import GenericVehicle
 
@@ -86,6 +91,42 @@ class _InspectableConnector(DTPSConnector):
 
 
 class WorldSessionTests(unittest.TestCase):
+    def test_dtps_timing_metadata_round_trips_cleanly(self) -> None:
+        """Keep timing metadata separate from callback payloads."""
+        payload = {"session_id": 7, "compressed_image": b"\x00\xff"}
+        enriched = _attach_dtps_timing_metadata(
+            payload,
+            engine_send_called_ns=123,
+        )
+        raw_data = RawData.cbor_from_native_object(enriched)
+        received = raw_data.get_as_native_object()
+        timing = _get_dtps_timing_metadata(received)
+        if timing != {"engine_send_called_ns": 123}:
+            pytest.fail("Timing metadata did not survive CBOR serialization.")
+        if _strip_dtps_timing_metadata(received) != payload:
+            pytest.fail("Timing metadata changed the callback payload.")
+        if "__dtps_timing__" in payload:
+            pytest.fail("Attaching timing metadata mutated the input.")
+
+    def test_timing_profiler_handles_empty_and_zero_duration(self) -> None:
+        """Log empty and zero-duration samples safely."""
+        profiler = TimingProfiler("Test profiling")
+        logger = Mock()
+        profiler.log(logger)
+        logger.info.assert_not_called()
+        profiler.enable()
+        profiler.log(logger)
+        logger.info.assert_called_once_with(
+            "\n%s:\n(no samples)\n",
+            "Test profiling",
+        )
+        logger.info.reset_mock()
+        profiler.observe("zero", 0)
+        profiler.log(logger)
+        call = logger.info.call_args
+        if call is None or "inf" not in call.args[-1]:
+            pytest.fail("Zero-duration samples did not log safely.")
+
     @staticmethod
     def _start_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
         loop = asyncio.new_event_loop()
