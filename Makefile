@@ -1,4 +1,8 @@
 tag=duckietown.sdk
+PYTHON ?= python3
+TEST_WORKERS ?= 8
+PYTEST_ARGS ?=
+export PYTHONPATH := $(CURDIR)/src$(if $(PYTHONPATH),:$(PYTHONPATH))
 
 regular_packages=duckietown.sdk
 test_packages=duckietown_sdk_tests
@@ -11,14 +15,13 @@ CIRCLE_NODE_TOTAL ?= 1
 out=out
 coverage_dir=$(out)/coverage
 tr=$(out)/test-results
-xunit_output=$(tr)/nose-$(CIRCLE_NODE_INDEX)-xunit.xml
+xunit_output=$(tr)/pytest-$(CIRCLE_NODE_INDEX)-xunit.xml
 
 
-parallel=--processes=8 --process-timeout=1000 --process-restartworker
-coverage=--cover-html --cover-html-dir=$(coverage_dir) --cover-tests --with-coverage --cover-package=$(cover_packages)
-
-xunitmp=--with-xunitmp --xunitmp-file=$(xunit_output)
-extra=--rednose --immediate
+test_files=src/duckietown_sdk_tests/test_world_sessions.py \
+	src/duckietown_sdk_tests/test_shm_transport.py
+coverage=--cov=$(regular_packages) --cov-branch --cov-report=term-missing --cov-report=html:$(coverage_dir)
+pytest=$(PYTHON) -W default -m pytest $(test_files) -v $(coverage) --junitxml=$(xunit_output) $(PYTEST_ARGS)
 
 
 
@@ -34,31 +37,27 @@ all:
 
 
 black:
-	black -l 110 --target-version py37 src
+	black -l 110 --target-version py312 src
 
 clean:
-	coverage erase
+	$(PYTHON) -m coverage erase
 	rm -rf $(out) $(coverage_dir) $(tr)
 
 test: clean
 	mkdir -p  $(tr)
-	DISABLE_CONTRACTS=1 nosetests $(extra) $(coverage)  src  -v --nologcapture $(xunitmp)
+	DISABLE_CONTRACTS=1 $(pytest)
 
 
 test-parallel: clean
 	mkdir -p  $(tr)
-	DISABLE_CONTRACTS=1 nosetests $(extra) $(coverage) src  -v --nologcapture $(parallel)
+	DISABLE_CONTRACTS=1 $(pytest) -n $(TEST_WORKERS)
 
 
-test-parallel-circle:
-	DISABLE_CONTRACTS=1 \
-	NODE_TOTAL=$(CIRCLE_NODE_TOTAL) \
-	NODE_INDEX=$(CIRCLE_NODE_INDEX) \
-	nosetests $(coverage) $(xunitmp) src  -v  $(parallel)
+test-parallel-circle: test-parallel
 
 
 coverage-combine:
-	coverage combine
+	$(PYTHON) -m coverage report
 
 
 
@@ -73,7 +72,7 @@ test-docker: build
 
 
 coverage-report:
-	coverage html  -d $(coverage_dir)
+	$(PYTHON) -m coverage html -d $(coverage_dir)
 
 docs:
 	sphinx-build src $(out)/docs

@@ -1,1 +1,1 @@
-from .base import DTPS, DTPSConnector
+"""Duckietown Postal Service (DTPS) middleware."""
