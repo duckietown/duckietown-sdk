@@ -1,0 +1,17 @@
+line-length = 79
+target-version = "py312"
+
+[lint]
+select = ["ALL"]
+
+[lint.per-file-ignores]
+"src/duckietown/sdk/robots/generic_vehicle.py" = ["ANN401"]
+"src/duckietown/sdk/utils/lane_position.py" = ["A002", "N818"]
+"src/duckietown_sdk_tests/test_actuators.py" = ["T201"]
+"src/duckietown_sdk_tests/test_all.py" = ["T201"]
+"src/duckietown_sdk_tests/test_sensors.py" = ["T201"]
+"src/duckietown_sdk_tests/test_state.py" = ["T201"]
+"src/duckietown_sdk_tests/test_world_sessions.py" = ["PT009", "SLF001"]
+
+[lint.pycodestyle]
+max-doc-length = 72
