@@ -1,124 +1,175 @@
-from typing import Tuple, Optional
+"""Generic Duckiebot."""
 
-from ...middleware.base import TimeOfFlightDriver, CameraDriver, MotorsDriver, WheelEncoderDriver, LEDsDriver, MapLayerDriver, PoseDriver, DeltaTDriver, ResetFlagDriver
-from ...middleware.dtps.components import DTPSCameraDriver, DTPSTimeOfFlightDriver, DTPSWheelEncoderDriver, \
-    DTPSMotorsDriver, DTPSLEDsDriver, DTPSMapLayerDriver, DTPSPoseDriver, DTPSDeltaTDriver, DTPSResetFlagDriver
-from ...types import CompoundComponent
+from duckietown.sdk.middleware.base import (
+    CameraDriver,
+    InertialMeasurementUnit,
+    LEDsDriver,
+    MotorsDriver,
+    PoseDriver,
+    ResetFlagDriver,
+    TimeOfFlightDriver,
+    Twist,
+    WheelEncoderDriver,
+)
+from duckietown.sdk.middleware.dtps.components import (
+    DTPSCameraDriver,
+    DTPSInertialMeasurementUnit,
+    DTPSLEDsDriver,
+    DTPSMotorsDriver,
+    DTPSPoseDriver,
+    DTPSResetFlagDriver,
+    DTPSTimeOfFlightDriver,
+    DTPSTwist,
+    DTPSWheelEncoderDriver,
+)
+from duckietown.sdk.robots.generic_vehicle import GenericVehicle
 
 
-DEFAULT_ROBOT_SWITCHBOARD_PORT: int = 11911
-DEFAULT_DUCKIEMATRIX_PORT: int = 7501
+class GenericDuckiebot(GenericVehicle):
+    """Generic Duckiebot.
 
+    Base class for Duckiebot models. Extends
+    :py:class:`GenericVehicle` with differential-drive motors,
+    cameras, wheel encoders, IMU, time-of-flight sensor, and
+    lights.
 
-class GenericDuckiebot(CompoundComponent):
-
-    def __init__(self, name: str, *, host: Optional[str] = None, simulated: bool = False, port: Optional[int] = None):
-        super(GenericDuckiebot, self).__init__()
-        self._name: str = name
-        self._host: str = host or ("127.0.0.1" if simulated else f"{name}.local")
-        self._port: int = port or (DEFAULT_ROBOT_SWITCHBOARD_PORT if not simulated else DEFAULT_DUCKIEMATRIX_PORT)
-        self._simulated: bool = simulated
+    Specific Duckiebot models (e.g. ``DB21M``, ``DB21J``)
+    inherit from this class and expose the appropriate subset
+    of hardware as named properties.
+    """
 
     def _camera(self, name: str) -> CameraDriver:
-        key: Tuple[str, str] = ("camera", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSCameraDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
-    
-    def _map_layer(self, name: str) -> MapLayerDriver:
-        key: Tuple[str, str] = ("map_layer", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ()
-            # ---
-            self._components[key] = DTPSMapLayerDriver(self._host, self._port, "", name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
-    
-    def _pose(self, name: str) -> PoseDriver:
-        key: Tuple[str, str] = ("pose", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSPoseDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
+        return self._get_component(
+            "camera",
+            name,
+            ("robot",),
+            CameraDriver,
+            DTPSCameraDriver,
+        )
 
-
-    def _delta_t(self, name: str) -> DeltaTDriver:
-        key: Tuple[str, str] = ("delta_t", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSDeltaTDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
-
-    def _range_finder(self, name: str) -> TimeOfFlightDriver:
-        key: Tuple[str, str] = ("range_finder", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSTimeOfFlightDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
-
-    def _wheel_encoder(self, name: str) -> WheelEncoderDriver:
-        key: Tuple[str, str] = ("wheel_encoder", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSWheelEncoderDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
+    def _inertial_measurement_unit(
+        self,
+        name: str,
+    ) -> InertialMeasurementUnit:
+        return self._get_component(
+            "inertial_measurement_unit",
+            name,
+            ("robot",),
+            InertialMeasurementUnit,
+            DTPSInertialMeasurementUnit,
+        )
 
     def _lights(self, name: str) -> LEDsDriver:
-        key: Tuple[str, str] = ("lights", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSLEDsDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
+        return self._get_component(
+            "lights",
+            name,
+            ("robot",),
+            LEDsDriver,
+            LEDsDriver if self._gym_mode else DTPSLEDsDriver,
+        )
 
     def _motors(self, name: str) -> MotorsDriver:
-        key: Tuple[str, str] = ("motors", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSMotorsDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
-    
-    def _reset_flag(self, name: str) -> ResetFlagDriver:
-        key: Tuple[str, str] = ("reset", name)
-        if key not in self._components:
-            args: dict = {}
-            if self._simulated:
-                args["path_prefix"] = ("robot",)
-            # ---
-            self._components[key] = DTPSResetFlagDriver(self._host, self._port, self._name, name, **args)
-        # noinspection PyTypeChecker
-        return self._components[key]
+        return self._get_component(
+            "motors",
+            name,
+            ("robot",),
+            MotorsDriver,
+            MotorsDriver if self._gym_mode else DTPSMotorsDriver,
+        )
 
-    def __repr__(self):
-        return (f"GenericDuckiebot(name='{self._name}', host='{self._host}', port='{self._port}', "
-                f"simulated={self._simulated})")
+    def _time_of_flight_sensor(
+        self,
+        name: str,
+    ) -> TimeOfFlightDriver:
+        return self._get_component(
+            "time_of_flight_sensor",
+            name,
+            ("robot",),
+            TimeOfFlightDriver,
+            DTPSTimeOfFlightDriver,
+        )
+
+    def _wheel_encoder(self, name: str) -> WheelEncoderDriver:
+        return self._get_component(
+            "wheel_encoder",
+            name,
+            ("robot",),
+            WheelEncoderDriver,
+            DTPSWheelEncoderDriver,
+        )
+
+    @property
+    def pose(self) -> PoseDriver:
+        """Return the pose component.
+
+        Returns:
+            Pose: The pose component.
+
+        """
+        return self._get_component(
+            "pose",
+            "",
+            ("robot",),
+            PoseDriver,
+            DTPSPoseDriver,
+        )
+
+    @property
+    def state_reset_flag(self) -> ResetFlagDriver:
+        """Return the state reset flag component.
+
+        Returns:
+            StateResetFlag: The state reset flag component.
+
+        """
+        return self._get_component(
+            "state_reset_flag",
+            "",
+            ("robot",),
+            ResetFlagDriver,
+            ResetFlagDriver if self._gym_mode else DTPSResetFlagDriver,
+        )
+
+    @property
+    def twist(self) -> Twist:
+        """Return the twist component.
+
+        Returns:
+            Twist: The twist component.
+
+        """
+        return self._get_component(
+            "twist",
+            "",
+            ("robot",),
+            Twist,
+            DTPSTwist,
+        )
+
+    def start(self) -> None:
+        """Start Duckiebot-specific shared components.
+
+        Starts pose, twist, and state-reset-flag components
+        when not in gym mode (i.e. for real or non-gym
+        simulated robots). Calls :py:meth:`GenericVehicle.start`
+        for the common gym/map components.
+        """
+        if not self._gym_mode:
+            self.pose.start()
+            self.twist.start()
+            self.state_reset_flag.start()
+        super().start()
+
+    def stop(self) -> None:
+        """Stop Duckiebot-specific shared components.
+
+        Stops pose, twist, and state-reset-flag components
+        when not in gym mode. Calls
+        :py:meth:`GenericVehicle.stop` for the common
+        gym/map components.
+        """
+        if not self._gym_mode:
+            self.pose.stop()
+            self.twist.stop()
+            self.state_reset_flag.stop()
+        super().stop()
