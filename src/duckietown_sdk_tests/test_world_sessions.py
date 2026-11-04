@@ -148,11 +148,11 @@ class WorldSessionTests(unittest.TestCase):
             pytest.fail("Map tile was not loaded.")
         return LanePositionCalculator(interpreter), tile["curves"]
 
-    def test_lane_grid_uses_centered_tile_coordinates(self) -> None:
-        """Keep both halves of a tile in the same grid cell."""
+    def test_lane_grid_uses_tile_corner_coordinates(self) -> None:
+        """Map a tile's area, corner at its frame pose, to its cell."""
         calculator = LanePositionCalculator(Mock(road_tile_size=0.585))
-        for offset in (-0.2, 0.2):
-            position = np.array([offset * 0.585, 0, 0.585])
+        for offset in (0.05, 0.5, 0.95):
+            position = np.array([offset * 0.585, 0, 1.5 * 0.585])
             self.assertEqual(calculator.get_grid_coords(position), (0, 1))
 
     def test_lane_curve_has_correct_radii_and_unit_alignment(self) -> None:
@@ -174,10 +174,10 @@ class WorldSessionTests(unittest.TestCase):
         tile = interpreter.get_tile(0, 0)
         if tile is None:
             pytest.fail("Corner tile was not loaded.")
-        center = np.array([-0.5, 0, 0.5]) * size
+        center = np.array([0.0, 0, 1.0]) * size
         endpoints = (
-            ([[0.2, 0, 0.5], [-0.5, 0, -0.2]], 0.7),
-            ([[-0.5, 0, 0.2], [-0.2, 0, 0.5]], 0.3),
+            ([[0.0, 0, 0.3], [0.7, 0, 1.0]], 0.7),
+            ([[0.3, 0, 1.0], [0.0, 0, 0.7]], 0.3),
         )
         for curve, (expected, radius) in zip(
             tile["curves"],
@@ -206,7 +206,7 @@ class WorldSessionTests(unittest.TestCase):
                 calculator, curves = self._map_lane_curves(
                     "curve", coords, yaw,
                 )
-                center = np.array([coords[0], 0, coords[1]])
+                center = np.array([coords[0] + 0.5, 0, coords[1] + 0.5])
                 exits = curves[:, (0, -1), :] / calculator.road_tile_size
                 offsets = exits.reshape(-1, 3) - center
                 connected = {
@@ -229,7 +229,7 @@ class WorldSessionTests(unittest.TestCase):
             with self.subTest(coords=coords):
                 calculator, curves = self._map_lane_curves("3way", coords, yaw)
                 self.assertEqual(curves.shape, (6, 4, 3))
-                center = np.array([coords[0], 0, coords[1]])
+                center = np.array([coords[0] + 0.5, 0, coords[1] + 0.5])
                 routes = set()
                 for curve in curves:
                     endpoints = curve[[0, -1]] / calculator.road_tile_size
@@ -270,7 +270,7 @@ class WorldSessionTests(unittest.TestCase):
                 center = bezier_point(curve, parameter)
                 tangent = bezier_tangent(curve, parameter)
                 tangent /= np.linalg.norm(tangent)
-                right = np.cross(tangent, [0, 1, 0])
+                right = np.cross([0, 1, 0], tangent)
                 heading = math.atan2(-tangent[2], tangent[0])
                 for offset in (-0.05, -0.03, 0.03, 0.05):
                     with self.subTest(
@@ -289,16 +289,136 @@ class WorldSessionTests(unittest.TestCase):
         center = bezier_point(curve, 0.5)
         tangent = bezier_tangent(curve, 0.5)
         tangent /= np.linalg.norm(tangent)
-        right = np.cross(tangent, [0, 1, 0])
+        right = np.cross([0, 1, 0], tangent)
         heading = math.atan2(-tangent[2], tangent[0])
         for sign in (-1, 1):
             with self.subTest(sign=sign):
                 lane = calculator.get_lane_pos2(
                     center + sign * 0.02 * right,
-                    heading - sign * 0.1,
+                    heading + sign * 0.1,
                 )
                 self.assertAlmostEqual(lane.dist, sign * 0.02, places=4)
                 self.assertAlmostEqual(lane.angle_rad, sign * 0.1, places=4)
+
+    def test_lane_position_matches_the_rendered_loop_map(self) -> None:
+        """Place the loop map's spawn pose in its rendered right lane.
+
+        The renderer puts tile ``(i, j)``'s corner at the frame pose and
+        draws right-hand traffic. On the shipped ``loop`` map the robot
+        spawns at (0.88, 0.185), heading +x, centred in the right lane
+        of straight tile (1, 0); the gym environment passes
+        ``(x, z, y)`` and the negated yaw.
+        """
+        size = 0.585
+        map_data = {
+            "frames": {
+                "data": {
+                    "map_0/tile_1_0": {
+                        "pose": {"x": 1.0, "y": 0.0, "yaw": 4.71238898038469},
+                    },
+                    "map_0/tile_2_0": {
+                        "pose": {"x": 2.0, "y": 0.0, "yaw": 0.0},
+                    },
+                },
+            },
+            "tiles": {
+                "data": {
+                    "map_0/tile_1_0": {"type": "straight"},
+                    "map_0/tile_2_0": {"type": "curve"},
+                },
+            },
+            "tile_info": {"data": {"map_0": {"tile_size": {"x": size}}}},
+        }
+        interpreter = MapInterpreter(map_data)
+        calculator = LanePositionCalculator(interpreter)
+        x, y = 0.88, 0.185
+        lane = calculator.get_lane_pos2(np.array([x, 0, y]), -0.0)
+        self.assertLess(abs(lane.dist), 0.015)
+        self.assertGreater(lane.dot_dir, 0.99)
+        # +y is left of a robot heading +x: towards the centre line
+        left = calculator.get_lane_pos2(np.array([x, 0, y + 0.06]), 0.0)
+        right = calculator.get_lane_pos2(np.array([x, 0, y - 0.06]), 0.0)
+        self.assertLess(left.dist, -0.04)
+        self.assertGreater(right.dist, 0.04)
+        # a robot turned to its left (counter-clockwise yaw) reports < 0
+        turned = calculator.get_lane_pos2(np.array([x, 0, y]), -0.3)
+        self.assertAlmostEqual(turned.angle_rad, -0.3, places=2)
+        tile = interpreter.get_tile(1, 0)
+        if tile is None:
+            pytest.fail("Straight tile was not loaded.")
+        np.testing.assert_allclose(
+            interpreter.tile_center(tile), np.array([1.5, 0, 0.5]) * size,
+        )
+
+    def test_curve_exits_lead_into_the_neighbouring_tile(self) -> None:
+        """Follow every curve of the loop map into the tile it ends at.
+
+        Curves end on a tile edge; the next tile is the one across that
+        edge, whichever way the curve leaves.
+        """
+        size = 0.585
+        quarter = 1.5707963267948966
+        layout = {
+            (0, 0): ("curve", 3 * quarter),
+            (0, 1): ("straight", 0.0),
+            (0, 2): ("curve", 2 * quarter),
+            (1, 0): ("straight", 3 * quarter),
+            (1, 1): ("floor", 0.0),
+            (1, 2): ("straight", 3 * quarter),
+            (2, 0): ("curve", 0.0),
+            (2, 1): ("straight", 0.0),
+            (2, 2): ("curve", quarter),
+        }
+        names = {(i, j): f"map_0/tile_{i}_{j}" for i, j in layout}
+        interpreter = MapInterpreter(
+            {
+                "frames": {
+                    "data": {
+                        names[(i, j)]: {"pose": {"x": i, "y": j, "yaw": yaw}}
+                        for (i, j), (_, yaw) in layout.items()
+                    },
+                },
+                "tiles": {
+                    "data": {
+                        names[coords]: {"type": kind}
+                        for coords, (kind, _) in layout.items()
+                    },
+                },
+                "tile_info": {"data": {"map_0": {"tile_size": {"x": size}}}},
+            },
+        )
+        for (i, j), (kind, _) in layout.items():
+            if kind != "curve":
+                continue
+            tile = interpreter.get_tile(i, j)
+            if tile is None:
+                pytest.fail("Curve tile was not loaded.")
+            for curve in tile["curves"]:
+                end = bezier_point(curve, 1.0)
+                tangent = bezier_tangent(curve, 1.0)
+                heading = math.atan2(-tangent[2], tangent[0])
+                x, z = end[0] / size, end[2] / size
+                edges = (
+                    (x, i + 1, (i + 1, j)),
+                    (x, i, (i - 1, j)),
+                    (z, j + 1, (i, j + 1)),
+                    (z, j, (i, j - 1)),
+                )
+                across = [
+                    coords
+                    for value, edge, coords in edges
+                    if math.isclose(value, edge, abs_tol=1e-6)
+                ]
+                with self.subTest(tile=(i, j), end=(x, z)):
+                    self.assertEqual(len(across), 1, "not on one tile edge")
+                    self.assertEqual(
+                        interpreter._get_next_tile_coords_from_point(
+                            end, heading,
+                        ),
+                        across[0],
+                    )
+                    kind_across = layout.get(across[0], ("none",))[0]
+                    self.assertEqual(kind_across, "straight")
 
     def test_lane_position_keeps_misaligned_poses_on_the_nearest_lane(
         self,
@@ -309,7 +429,7 @@ class WorldSessionTests(unittest.TestCase):
             center = bezier_point(curve, 0.5)
             tangent = bezier_tangent(curve, 0.5)
             tangent /= np.linalg.norm(tangent)
-            right = np.cross(tangent, [0, 1, 0])
+            right = np.cross([0, 1, 0], tangent)
             heading = math.atan2(-tangent[2], tangent[0])
             for offset in (-0.02, 0.0, 0.02):
                 for yaw in (-130, -90, -50, 50, 90, 130):
@@ -324,7 +444,7 @@ class WorldSessionTests(unittest.TestCase):
                             lane.dot_dir, math.cos(angle), places=4,
                         )
                         self.assertAlmostEqual(
-                            lane.angle_deg, -yaw, places=4,
+                            lane.angle_deg, yaw, places=4,
                         )
 
     def test_lane_position_rejects_missing_or_non_drivable_tiles(self) -> None:
