@@ -99,6 +99,22 @@ class MapInterpreter:
         """Get the tile at grid position (i,j)."""
         return self.grid.get((i, j))
 
+    def tile_center(self, tile: dict) -> np.ndarray:
+        """Return the world position ``(x, 0, y)`` of a tile's centre.
+
+        The Duckiematrix renderer places tile ``(i, j)`` with its
+        corner at the frame pose, so its centre is half a tile further
+        along both axes.
+        """
+        pose = tile["pose"]
+        return np.array(
+            [
+                (pose["x"] + 0.5) * self.road_tile_size,
+                0,
+                (pose["y"] + 0.5) * self.road_tile_size,
+            ],
+        )
+
     def _get_curve(self, i: int, j: int) -> np.ndarray:
         """Get the Bezier control points for every curve in a tile.
 
@@ -179,19 +195,19 @@ class MapInterpreter:
                 )
                 pts = np.concatenate((straight, pts, opposite_turns))
 
+        # The templates come from gym-duckietown, whose z axis points
+        # the other way: in the map's y-up frame their lanes would
+        # carry left-hand traffic. Reversing every curve keeps the
+        # lanes where they are and makes them run the way the road
+        # markings say.
+        pts = pts[:, ::-1, :]
+
         # Rotate and align each curve with its place in global frame
         mat = gen_rot_matrix(np.array([0, 1, 0]), angle)
         pts = np.matmul(pts, mat)
 
         # Add tile position offset
-        pose = tile["pose"]
-        pts += np.array(
-            [
-                pose["x"] * self.road_tile_size,
-                0,
-                pose["y"] * self.road_tile_size,
-            ],
-        )
+        pts += self.tile_center(tile)
 
         return pts
 
@@ -223,14 +239,7 @@ class MapInterpreter:
 
             if current_tile["kind"] == "straight":
                 # Add control points along the straight tile.
-                pose = current_tile["pose"]
-                center = np.array(
-                    [
-                        pose["x"] * self.road_tile_size,
-                        0,
-                        pose["y"] * self.road_tile_size,
-                    ],
-                )
+                center = self.tile_center(current_tile)
                 dir_vec = get_dir_vec(current_angle)
 
                 # Add control points for straight section
@@ -286,14 +295,7 @@ class MapInterpreter:
 
             elif current_tile["kind"] == "3way":
                 # Add the intersection's center as a control point.
-                pose = current_tile["pose"]
-                center = np.array(
-                    [
-                        pose["x"] * self.road_tile_size,
-                        0,
-                        pose["y"] * self.road_tile_size,
-                    ],
-                )
+                center = self.tile_center(current_tile)
 
                 # Add center point
                 control_points.append(center)
@@ -344,10 +346,16 @@ class MapInterpreter:
     def _get_next_tile_coords_from_point(
         self, point: np.ndarray, angle: float,
     ) -> tuple[int, int]:
-        """Get the next tile coordinates from a point and heading."""
-        i = math.floor(point[0] / self.road_tile_size)
-        j = math.floor(point[2] / self.road_tile_size)
-        return self._get_next_tile_coords((i, j), angle)
+        """Get the tile that a curve ending at ``point`` leads into.
+
+        The end point lies on the boundary between two tiles, where
+        flooring it is ambiguous, so look up the tile containing a point
+        a quarter tile further along the outgoing heading.
+        """
+        x, _, z = point + 0.25 * self.road_tile_size * get_dir_vec(angle)
+        i = math.floor(x / self.road_tile_size)
+        j = math.floor(z / self.road_tile_size)
+        return i, j
 
     def get_reference_trajectory_with_tangents(
         self,
@@ -557,13 +565,7 @@ class MapInterpreter:
         non_drivable_centers = []
 
         for tile in self.grid.values():
-            pose = tile["pose"]
-            center = np.array(
-                [
-                    pose["x"] * self.road_tile_size,
-                    pose["y"] * self.road_tile_size,
-                ],
-            )
+            center = self.tile_center(tile)[[0, 2]]
 
             if tile["drivable"]:
                 drivable_centers.append(center)
@@ -649,13 +651,7 @@ class MapInterpreter:
 
         while current_tile and current_tile["coords"] not in visited:
             visited.add(current_tile["coords"])
-            pose = current_tile["pose"]
-            center = np.array(
-                [
-                    pose["x"] * self.road_tile_size,
-                    pose["y"] * self.road_tile_size,
-                ],
-            )
+            center = self.tile_center(current_tile)[[0, 2]]
 
             if current_tile["kind"] == "straight":
                 # For straight tiles, add points along the center line
@@ -837,8 +833,8 @@ def get_dir_vec(angle: float) -> np.ndarray:
 
 def get_right_vec(angle: float) -> np.ndarray:
     """Return the direction to the right of the agent."""
-    x = math.sin(angle)
-    z = math.cos(angle)
+    x = -math.sin(angle)
+    z = -math.cos(angle)
     return np.array([x, 0, z])
 
 
@@ -868,8 +864,8 @@ class LanePositionCalculator:
         z-axis maps to increasing j indices
         """
         x, _, z = abs_pos
-        i = math.floor(x / self.road_tile_size + 0.5)
-        j = math.floor(z / self.road_tile_size + 0.5)
+        i = math.floor(x / self.road_tile_size)
+        j = math.floor(z / self.road_tile_size)
         return int(i), int(j)
 
     def closest_curve_point(
@@ -938,7 +934,8 @@ class LanePositionCalculator:
         # Right of the curve is positive, left is negative
         position_offset = pos - point
         up_vector = np.array([0, 1, 0])
-        right_vector = np.cross(tangent, up_vector)
+        # (x, up, y) is right-handed: up x tangent points to the right
+        right_vector = np.cross(up_vector, tangent)
         signed_distance = np.dot(position_offset, right_vector)
 
         # Compute the signed angle relative to the curve tangent.
