@@ -235,7 +235,7 @@ class DTPSMotorsDriver(MotorsDriver, GenericDTPSPublisher):
 
     def __init__(self, host: str, port: int, robot_name: str, actuator_name: str, **kwargs):
         super(DTPSMotorsDriver, self).__init__(
-            host, port, robot_name, ("actuator", "wheels", actuator_name, "pwm_filtered"), **kwargs
+            host, port, robot_name, ("actuator", "wheels", actuator_name, "pwm"), **kwargs
         )
 
     def publish(self, data: Tuple[PWMSignal, PWMSignal]):
