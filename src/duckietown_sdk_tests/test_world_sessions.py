@@ -155,6 +155,49 @@ class WorldSessionTests(unittest.TestCase):
             position = np.array([offset * 0.585, 0, 1.5 * 0.585])
             self.assertEqual(calculator.get_grid_coords(position), (0, 1))
 
+    def test_lane_map_uses_complete_runtime_namespace(self) -> None:
+        """Keep other replicas and authored maps out of each grid."""
+        selected = "environment_2/map_0"
+        other = "environment_10/map_0"
+        authored = "environment_2/map_1"
+        map_data = {
+            "frames": {
+                "data": {
+                    f"{selected}/tile_0_0": {
+                        "pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+                    },
+                    f"{other}/tile_0_0": {
+                        "pose": {"x": 0.0, "y": 0.0, "yaw": 1.0},
+                    },
+                    f"{authored}/tile_0_0": {
+                        "pose": {"x": 0.0, "y": 0.0, "yaw": 2.0},
+                    },
+                },
+            },
+            "tiles": {
+                "data": {
+                    f"{selected}/tile_0_0": {"type": "straight"},
+                    f"{other}/tile_0_0": {"type": "curve"},
+                    f"{authored}/tile_0_0": {"type": "3way"},
+                },
+            },
+            "tile_info": {
+                "data": {
+                    selected: {"tile_size": {"x": 0.585}},
+                    other: {"tile_size": {"x": 1.0}},
+                    authored: {"tile_size": {"x": 2.0}},
+                },
+            },
+        }
+        interpreter = MapInterpreter(map_data, tile_map_key=selected)
+        self.assertEqual(interpreter.road_tile_size, 0.585)
+        self.assertEqual(len(interpreter.grid), 1)
+        tile = interpreter.get_tile(0, 0)
+        if tile is None:
+            pytest.fail("Selected replica tile was not loaded.")
+        self.assertEqual(tile["kind"], "straight")
+        self.assertEqual(tile["angle"], 0.0)
+
     def test_lane_curve_has_correct_radii_and_unit_alignment(self) -> None:
         """Connect circular corner lanes to canonical top/left edges."""
         size = 0.585

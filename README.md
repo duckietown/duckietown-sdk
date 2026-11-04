@@ -53,6 +53,40 @@ and prefer the multiprocessing `spawn` start method. Construct components
 inside each worker. Forked workers create fresh DTPS caches and loops;
 inherited component connectors are rejected rather than reused.
 
+## Replicated Duckiematrix Maps
+
+Launch replicas with the Engine's `--environments` option. With a matching
+Engine that publishes `map/environments`, discover its explicit mappings:
+
+```python
+from duckietown.sdk.robots import discover_entities, discover_environments
+
+environments = discover_environments(host="127.0.0.1", port=7501)
+vehicle_names, static_names = discover_entities(host="127.0.0.1", port=7501)
+```
+
+`discover_entities()` retains its existing tuple return type and complete
+runtime names, such as `environment_2/map_0/vehicle_0`.
+`discover_environments()` returns immutable `EnvironmentInfo` records in
+explicit numeric index order. Each record includes `id`, `index`,
+`source_map`, `vehicle_keys`, `tile_map_keys`, `entity_keys`, `source_keys`
+and the local `pose`. Missing metadata on an older Engine or an empty
+nonreplicated manifest returns `()`. Invalid metadata and network failures
+raise rather than guessing an environment count from vehicle names.
+
+`overlap-v1` environments use identity local transforms.
+For lane geometry, select the full runtime tile-map key with
+`MapInterpreter(map_data, tile_map_key="environment_2/map_0")`; tiles from
+other replicas and authored maps are excluded from that grid. The default
+`tile_map_key="map_0"` preserves legacy callers.
+
+In real-time mode, pass complete discovered vehicle keys to existing SDK
+robots and components. Gym mode still uses one global world-input/output
+pair and one `GymEnvironment` bridge for every replica. Do not start a
+separate Gym publisher for each environment. This manifest does not
+provide the strict vector protocol's run identity, coordinator claim,
+camera specifications or independent episode-reset guarantees.
+
 ## DTPS Profiling Metadata
 
 DTPS session messages can carry the reserved top-level `__dtps_timing__`

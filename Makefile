@@ -19,7 +19,8 @@ xunit_output=$(tr)/pytest-$(CIRCLE_NODE_INDEX)-xunit.xml
 
 
 test_files=src/duckietown_sdk_tests/test_world_sessions.py \
-	src/duckietown_sdk_tests/test_shm_transport.py
+	src/duckietown_sdk_tests/test_shm_transport.py \
+	src/duckietown_sdk_tests/test_environment_discovery.py
 coverage=--cov=$(regular_packages) --cov-branch --cov-report=term-missing --cov-report=html:$(coverage_dir)
 pytest=$(PYTHON) -W default -m pytest $(test_files) -v $(coverage) --junitxml=$(xunit_output) $(PYTEST_ARGS)
 

@@ -9,6 +9,12 @@ from duckietown.sdk.robots.entity import (
 from duckietown.sdk.robots.entity import (
     wait_for_simulation as wait_for_simulation,
 )
+from duckietown.sdk.robots.environments import (
+    EnvironmentInfo as EnvironmentInfo,
+)
+from duckietown.sdk.robots.environments import (
+    discover_environments as discover_environments,
+)
 from duckietown.sdk.robots.generic_vehicle import (
     GenericVehicle as GenericVehicle,
 )
