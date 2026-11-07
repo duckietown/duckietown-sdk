@@ -12,6 +12,11 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import numpy as np
 import pytest
 from dtps_http import RawData
+from duckietown_messages.geometry_3d import (
+    Position,
+    Quaternion,
+    Transformation,
+)
 
 from duckietown.sdk.middleware.dtps.base import (
     DTPS,
@@ -722,6 +727,31 @@ class WorldSessionTests(unittest.TestCase):
         self.assertIsNotNone(entity_output.differential_pwm)
         self.assertEqual(entity_output.differential_pwm.left, 0.3)
         self.assertEqual(entity_output.differential_pwm.right, 0.4)
+        self.assertIsNone(entity_output.state_reset_pose)
+
+    def test_db21m_builds_reset_to_pose(self) -> None:
+        """Send the reset pose along with the reset flag."""
+        vehicle = DB21M(
+            "map_0/vehicle_0",
+            simulated=True,
+            gym_mode=True,
+        )
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+
+        entity_output = vehicle.make_world_entity_output(
+            0.0,
+            0.0,
+            reset_state=True,
+            reset_pose=pose,
+        )
+
+        self.assertTrue(entity_output.state_reset_flag.data)
+        self.assertEqual(entity_output.state_reset_pose, pose)
+        with pytest.raises(ValueError, match="reset_state"):
+            vehicle.make_world_entity_output(reset_pose=pose)
 
     def test_dtps_duckiebot_components_use_dtps_publishers(self) -> None:
         """Use DTPS publishers for motors, lights, and state reset."""
