@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 from duckietown_messages.actuators import CarLights, DifferentialPWM
 from duckietown_messages.colors import RGBA
+from duckietown_messages.geometry_3d import Transformation
 from duckietown_messages.standard import Boolean, Header
 
 from duckietown.sdk import logger
@@ -415,6 +416,62 @@ class ResetFlagDriver(GenericPublisher):
         self.boolean.data = data
         if publish:
             self.publish(self.boolean)
+
+
+class ResetPoseDriver(GenericPublisher):
+    """State reset-to-pose component (real-time simulated robots).
+
+    Publishing a pose resets the robot and puts it at that pose. In gym
+    mode, send the pose with ``make_world_entity_output`` instead.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        _: int,
+        robot_name: str,
+        __: str,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        """Initialize the state reset-to-pose component."""
+        super().__init__(
+            host,
+            robot_name,
+            **kwargs,
+        )
+
+    def publish(self, _: Any) -> None:  # noqa: ANN401
+        """Publish the given data.
+
+        Args:
+            _ (Any): The data to publish.
+
+        """
+
+    def set(
+        self,
+        pose: Transformation,
+        header: Header | None = None,
+        *,
+        publish: bool = True,
+    ) -> None:
+        """Reset the robot to ``pose``.
+
+        Args:
+            pose (Transformation): Where to put the robot, in the frame
+            and convention of the pose the engine reports.
+            header (Header | None, optional): The message header. If
+            `None`, a new header with the current timestamp will be
+            created. Defaults to `None`.
+            publish (bool, optional): Whether to publish the message.
+            Defaults to `True`.
+
+        """
+        if header is None:
+            header = Header(timestamp=time.time())
+        message = pose.model_copy(update={"header": header})
+        if publish:
+            self.publish(message)
 
 
 class TimeOfFlightDriver(GenericSubscriber):

@@ -2,6 +2,7 @@
 
 from duckietown_messages.actuators import CarLights, DifferentialPWM
 from duckietown_messages.colors.rgba import RGBA
+from duckietown_messages.geometry_3d import Transformation
 from duckietown_messages.simulation import WorldEntityOutput
 from duckietown_messages.standard import Boolean, Header
 
@@ -110,8 +111,34 @@ class DB21M(GenericDuckiebot):
         back_right_rgba: tuple[float, float, float, float] | None = None,
         *,
         reset_state: bool | None = None,
+        reset_pose: Transformation | None = None,
     ) -> WorldEntityOutput:
-        """Build this Duckiebot's per-entity gym actuator payload."""
+        """Build this Duckiebot's per-entity gym actuator payload.
+
+        Args:
+            left_pwm: Left wheel command.
+            right_pwm: Right wheel command.
+            front_left_rgba: Front left light colour.
+            front_right_rgba: Front right light colour.
+            back_left_rgba: Back left light colour.
+            back_right_rgba: Back right light colour.
+            reset_state: Reset the robot (to its initial pose, or to
+                ``reset_pose``).
+            reset_pose: Where the reset puts the robot, in the frame
+                and convention of the pose the engine reports (needs
+                ``reset_state=True``).
+
+        Raises:
+            ValueError: If ``reset_pose`` is given without
+                ``reset_state=True``.
+
+        Returns:
+            WorldEntityOutput: The payload.
+
+        """
+        if reset_pose is not None and reset_state is not True:
+            message = "'reset_pose' needs 'reset_state=True'."
+            raise ValueError(message)
         header = Header()
         differential_pwm = self._set_differential_pwm(
             header,
@@ -133,6 +160,7 @@ class DB21M(GenericDuckiebot):
             differential_pwm=differential_pwm,
             car_lights=car_lights,
             state_reset_flag=state_reset_flag,
+            state_reset_pose=reset_pose,
         )
 
     @property
