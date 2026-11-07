@@ -753,6 +753,30 @@ class WorldSessionTests(unittest.TestCase):
         with pytest.raises(ValueError, match="reset_state"):
             vehicle.make_world_entity_output(reset_pose=pose)
 
+    def test_dtps_duckiebot_resets_to_pose_in_real_time(self) -> None:
+        """Publish reset poses on state/reset_pose in real time."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+        component = vehicle.state_reset_pose
+        self.assertIs(type(component).publish, GenericDTPSPublisher.publish)
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+        with patch.object(component, "publish") as publish:
+            component.set(pose)
+        (message,), _ = publish.call_args
+        self.assertEqual(
+            (message.position.x, message.position.y, message.rotation.w),
+            (1.3, 0.42, 1.0),
+        )
+        self.assertEqual(component._topic, ("state", "reset_pose"))
+        self.assertGreater(message.header.timestamp, 0)
+        gym_vehicle = DB21M("map_0/vehicle_0", simulated=True, gym_mode=True)
+        self.assertIsNot(
+            type(gym_vehicle.state_reset_pose).publish,
+            GenericDTPSPublisher.publish,
+        )
+
     def test_dtps_duckiebot_components_use_dtps_publishers(self) -> None:
         """Use DTPS publishers for motors, lights, and state reset."""
         vehicle = DB21M(

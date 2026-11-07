@@ -7,6 +7,7 @@ from duckietown.sdk.middleware.base import (
     MotorsDriver,
     PoseDriver,
     ResetFlagDriver,
+    ResetPoseDriver,
     TimeOfFlightDriver,
     Twist,
     WheelEncoderDriver,
@@ -18,6 +19,7 @@ from duckietown.sdk.middleware.dtps.components import (
     DTPSMotorsDriver,
     DTPSPoseDriver,
     DTPSResetFlagDriver,
+    DTPSResetPoseDriver,
     DTPSTimeOfFlightDriver,
     DTPSTwist,
     DTPSWheelEncoderDriver,
@@ -128,6 +130,27 @@ class GenericDuckiebot(GenericVehicle):
             ("robot",),
             ResetFlagDriver,
             ResetFlagDriver if self._gym_mode else DTPSResetFlagDriver,
+        )
+
+    @property
+    def state_reset_pose(self) -> ResetPoseDriver:
+        """Return the state reset-to-pose component.
+
+        Real-time simulated robots only (in gym mode, pass
+        ``reset_pose`` to ``make_world_entity_output``). Not started by
+        :py:meth:`start`, so that robots on engines without it still
+        start: call its ``start()`` before ``set(pose)``.
+
+        Returns:
+            ResetPoseDriver: The state reset-to-pose component.
+
+        """
+        return self._get_component(
+            "state_reset_pose",
+            "",
+            ("robot",),
+            ResetPoseDriver,
+            ResetPoseDriver if self._gym_mode else DTPSResetPoseDriver,
         )
 
     @property
