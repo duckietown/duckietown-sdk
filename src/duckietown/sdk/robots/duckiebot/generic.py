@@ -187,7 +187,8 @@ class GenericDuckiebot(GenericVehicle):
         """Stop Duckiebot-specific shared components.
 
         Stops pose, twist, and state-reset-flag components
-        when not in gym mode. Calls
+        when not in gym mode, and the state-reset-to-pose component
+        when the caller started it (:py:meth:`start` never does). Calls
         :py:meth:`GenericVehicle.stop` for the common
         gym/map components.
         """
@@ -195,4 +196,9 @@ class GenericDuckiebot(GenericVehicle):
             self.pose.stop()
             self.twist.stop()
             self.state_reset_flag.stop()
+        # read the cache directly: touching the property would build a
+        # publisher for a robot that never reset to a pose
+        reset_pose = self._components.get(("state_reset_pose", ""))
+        if reset_pose is not None and reset_pose.has_started:
+            reset_pose.stop()
         super().stop()

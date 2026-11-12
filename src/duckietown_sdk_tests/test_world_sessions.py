@@ -1,6 +1,7 @@
 """Regression tests for world-side session propagation in the SDK."""
 
 import asyncio
+import contextlib
 import math
 import threading
 import unittest
@@ -22,6 +23,7 @@ from duckietown.sdk.middleware.dtps.base import (
     DTPS,
     DTPSConnector,
     GenericDTPSPublisher,
+    GenericDTPSSubscriber,
     _attach_dtps_timing_metadata,
     _get_dtps_timing_metadata,
     _strip_dtps_timing_metadata,
@@ -776,6 +778,65 @@ class WorldSessionTests(unittest.TestCase):
             type(gym_vehicle.state_reset_pose).publish,
             GenericDTPSPublisher.publish,
         )
+
+    def test_reset_pose_retains_the_message_when_not_publishing(self) -> None:
+        """Keep the prepared pose, as the reset flag keeps its own."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+        component = vehicle.state_reset_pose
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+        self.assertIsNone(component.pose)
+
+        with patch.object(component, "publish") as publish:
+            component.set(pose, publish=False)
+
+        publish.assert_not_called()
+        self.assertIsNotNone(component.pose)
+        self.assertEqual(component.pose.position.x, 1.3)
+        self.assertGreater(component.pose.header.timestamp, 0)
+
+        # publishing sends the retained message, not a throwaway copy
+        with patch.object(component, "publish") as publish:
+            component.set(pose)
+        (message,), _ = publish.call_args
+        self.assertIs(message, component.pose)
+
+    @staticmethod
+    def _offline() -> contextlib.ExitStack:
+        """Make start()/stop() state flips, with no transport."""
+        stack = contextlib.ExitStack()
+        for cls in (GenericDTPSSubscriber, GenericDTPSPublisher):
+            stack.enter_context(patch.object(cls, "_start"))
+            stack.enter_context(patch.object(cls, "_stop"))
+        return stack
+
+    def test_stop_releases_a_started_reset_pose_component(self) -> None:
+        """Stop the reset-pose publisher the caller started."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+
+        with self._offline():
+            reset_pose = vehicle.state_reset_pose
+            vehicle.start()
+            # start() never starts it, so the caller does
+            reset_pose.start()
+            vehicle.stop()
+
+            self.assertFalse(reset_pose.has_started)
+            # starting it again must not raise "already started"
+            reset_pose.start()
+            reset_pose.stop()
+
+    def test_stop_leaves_an_unused_reset_pose_component_alone(self) -> None:
+        """Do not build a publisher the robot never used."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+
+        with self._offline():
+            vehicle.start()
+            vehicle.stop()
+
+        self.assertNotIn(("state_reset_pose", ""), vehicle._components)
 
     def test_dtps_duckiebot_components_use_dtps_publishers(self) -> None:
         """Use DTPS publishers for motors, lights, and state reset."""

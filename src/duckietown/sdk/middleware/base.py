@@ -425,6 +425,8 @@ class ResetPoseDriver(GenericPublisher):
     mode, send the pose with ``make_world_entity_output`` instead.
     """
 
+    pose: Transformation | None
+
     def __init__(
         self,
         host: str,
@@ -439,6 +441,7 @@ class ResetPoseDriver(GenericPublisher):
             robot_name,
             **kwargs,
         )
+        self.pose = None
 
     def publish(self, _: Any) -> None:  # noqa: ANN401
         """Publish the given data.
@@ -464,14 +467,15 @@ class ResetPoseDriver(GenericPublisher):
             `None`, a new header with the current timestamp will be
             created. Defaults to `None`.
             publish (bool, optional): Whether to publish the message.
-            Defaults to `True`.
+            Defaults to `True`. When `False`, the message is retained
+            as :py:attr:`pose` so it can be published later.
 
         """
         if header is None:
             header = Header(timestamp=time.time())
-        message = pose.model_copy(update={"header": header})
+        self.pose = pose.model_copy(update={"header": header})
         if publish:
-            self.publish(message)
+            self.publish(self.pose)
 
 
 class TimeOfFlightDriver(GenericSubscriber):
