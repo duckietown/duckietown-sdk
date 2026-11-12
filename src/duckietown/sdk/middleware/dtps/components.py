@@ -17,6 +17,7 @@ from duckietown.sdk.middleware.base import (
     MotorsDriver,
     PoseDriver,
     ResetFlagDriver,
+    ResetPoseDriver,
     TimeOfFlightDriver,
     Twist,
     WheelEncoderDriver,
@@ -302,6 +303,35 @@ class DTPSResetFlagDriver(GenericDTPSPublisher, ResetFlagDriver):
             port=port,
             robot_name=robot_name,
             topic=("state", "reset"),
+            **kwargs,
+        )
+
+
+class DTPSResetPoseDriver(GenericDTPSPublisher, ResetPoseDriver):
+    """DTPS state reset-to-pose component."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        robot_name: str,
+        _: str,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> None:
+        """Initialize the DTPS state reset-to-pose component."""
+        ResetPoseDriver.__init__(
+            self,
+            host,
+            port,
+            robot_name,
+            "",
+        )
+        GenericDTPSPublisher.__init__(
+            self,
+            host=host,
+            port=port,
+            robot_name=robot_name,
+            topic=("state", "reset_pose"),
             **kwargs,
         )
 

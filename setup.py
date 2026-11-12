@@ -50,7 +50,7 @@ def get_version_from_source(filename: str) -> str:
 version = get_version_from_source("src/duckietown/sdk/__init__.py")
 
 install_requires = [
-    "duckietown-messages>=0.1.0,<0.2",
+    "duckietown-messages>=0.1.2,<0.2",
     "cbor2",
     "dtps-http>=1.6.1,<2",
     "matplotlib",

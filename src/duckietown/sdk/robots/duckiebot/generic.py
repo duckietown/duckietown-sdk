@@ -7,6 +7,7 @@ from duckietown.sdk.middleware.base import (
     MotorsDriver,
     PoseDriver,
     ResetFlagDriver,
+    ResetPoseDriver,
     TimeOfFlightDriver,
     Twist,
     WheelEncoderDriver,
@@ -18,6 +19,7 @@ from duckietown.sdk.middleware.dtps.components import (
     DTPSMotorsDriver,
     DTPSPoseDriver,
     DTPSResetFlagDriver,
+    DTPSResetPoseDriver,
     DTPSTimeOfFlightDriver,
     DTPSTwist,
     DTPSWheelEncoderDriver,
@@ -131,6 +133,27 @@ class GenericDuckiebot(GenericVehicle):
         )
 
     @property
+    def state_reset_pose(self) -> ResetPoseDriver:
+        """Return the state reset-to-pose component.
+
+        Real-time simulated robots only (in gym mode, pass
+        ``reset_pose`` to ``make_world_entity_output``). Not started by
+        :py:meth:`start`, so that robots on engines without it still
+        start: call its ``start()`` before ``set(pose)``.
+
+        Returns:
+            ResetPoseDriver: The state reset-to-pose component.
+
+        """
+        return self._get_component(
+            "state_reset_pose",
+            "",
+            ("robot",),
+            ResetPoseDriver,
+            ResetPoseDriver if self._gym_mode else DTPSResetPoseDriver,
+        )
+
+    @property
     def twist(self) -> Twist:
         """Return the twist component.
 
@@ -164,7 +187,8 @@ class GenericDuckiebot(GenericVehicle):
         """Stop Duckiebot-specific shared components.
 
         Stops pose, twist, and state-reset-flag components
-        when not in gym mode. Calls
+        when not in gym mode, and the state-reset-to-pose component
+        when the caller started it (:py:meth:`start` never does). Calls
         :py:meth:`GenericVehicle.stop` for the common
         gym/map components.
         """
@@ -172,4 +196,9 @@ class GenericDuckiebot(GenericVehicle):
             self.pose.stop()
             self.twist.stop()
             self.state_reset_flag.stop()
+        # read the cache directly: touching the property would build a
+        # publisher for a robot that never reset to a pose
+        reset_pose = self._components.get(("state_reset_pose", ""))
+        if reset_pose is not None and reset_pose.has_started:
+            reset_pose.stop()
         super().stop()
