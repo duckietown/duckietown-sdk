@@ -1,6 +1,7 @@
 """Regression tests for world-side session propagation in the SDK."""
 
 import asyncio
+import contextlib
 import math
 import threading
 import unittest
@@ -12,11 +13,17 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import numpy as np
 import pytest
 from dtps_http import RawData
+from duckietown_messages.geometry_3d import (
+    Position,
+    Quaternion,
+    Transformation,
+)
 
 from duckietown.sdk.middleware.dtps.base import (
     DTPS,
     DTPSConnector,
     GenericDTPSPublisher,
+    GenericDTPSSubscriber,
     _attach_dtps_timing_metadata,
     _get_dtps_timing_metadata,
     _strip_dtps_timing_metadata,
@@ -722,6 +729,114 @@ class WorldSessionTests(unittest.TestCase):
         self.assertIsNotNone(entity_output.differential_pwm)
         self.assertEqual(entity_output.differential_pwm.left, 0.3)
         self.assertEqual(entity_output.differential_pwm.right, 0.4)
+        self.assertIsNone(entity_output.state_reset_pose)
+
+    def test_db21m_builds_reset_to_pose(self) -> None:
+        """Send the reset pose along with the reset flag."""
+        vehicle = DB21M(
+            "map_0/vehicle_0",
+            simulated=True,
+            gym_mode=True,
+        )
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+
+        entity_output = vehicle.make_world_entity_output(
+            0.0,
+            0.0,
+            reset_state=True,
+            reset_pose=pose,
+        )
+
+        self.assertTrue(entity_output.state_reset_flag.data)
+        self.assertEqual(entity_output.state_reset_pose, pose)
+        with pytest.raises(ValueError, match="reset_state"):
+            vehicle.make_world_entity_output(reset_pose=pose)
+
+    def test_dtps_duckiebot_resets_to_pose_in_real_time(self) -> None:
+        """Publish reset poses on state/reset_pose in real time."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+        component = vehicle.state_reset_pose
+        self.assertIs(type(component).publish, GenericDTPSPublisher.publish)
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+        with patch.object(component, "publish") as publish:
+            component.set(pose)
+        (message,), _ = publish.call_args
+        self.assertEqual(
+            (message.position.x, message.position.y, message.rotation.w),
+            (1.3, 0.42, 1.0),
+        )
+        self.assertEqual(component._topic, ("state", "reset_pose"))
+        self.assertGreater(message.header.timestamp, 0)
+        gym_vehicle = DB21M("map_0/vehicle_0", simulated=True, gym_mode=True)
+        self.assertIsNot(
+            type(gym_vehicle.state_reset_pose).publish,
+            GenericDTPSPublisher.publish,
+        )
+
+    def test_reset_pose_retains_the_message_when_not_publishing(self) -> None:
+        """Keep the prepared pose, as the reset flag keeps its own."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+        component = vehicle.state_reset_pose
+        pose = Transformation(
+            position=Position(x=1.3, y=0.42, z=0.0),
+            rotation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0),
+        )
+        self.assertIsNone(component.pose)
+
+        with patch.object(component, "publish") as publish:
+            component.set(pose, publish=False)
+
+        publish.assert_not_called()
+        self.assertIsNotNone(component.pose)
+        self.assertEqual(component.pose.position.x, 1.3)
+        self.assertGreater(component.pose.header.timestamp, 0)
+
+        # publishing sends the retained message, not a throwaway copy
+        with patch.object(component, "publish") as publish:
+            component.set(pose)
+        (message,), _ = publish.call_args
+        self.assertIs(message, component.pose)
+
+    @staticmethod
+    def _offline() -> contextlib.ExitStack:
+        """Make start()/stop() state flips, with no transport."""
+        stack = contextlib.ExitStack()
+        for cls in (GenericDTPSSubscriber, GenericDTPSPublisher):
+            stack.enter_context(patch.object(cls, "_start"))
+            stack.enter_context(patch.object(cls, "_stop"))
+        return stack
+
+    def test_stop_releases_a_started_reset_pose_component(self) -> None:
+        """Stop the reset-pose publisher the caller started."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+
+        with self._offline():
+            reset_pose = vehicle.state_reset_pose
+            vehicle.start()
+            # start() never starts it, so the caller does
+            reset_pose.start()
+            vehicle.stop()
+
+            self.assertFalse(reset_pose.has_started)
+            # starting it again must not raise "already started"
+            reset_pose.start()
+            reset_pose.stop()
+
+    def test_stop_leaves_an_unused_reset_pose_component_alone(self) -> None:
+        """Do not build a publisher the robot never used."""
+        vehicle = DB21M("map_0/vehicle_0", simulated=True)
+
+        with self._offline():
+            vehicle.start()
+            vehicle.stop()
+
+        self.assertNotIn(("state_reset_pose", ""), vehicle._components)
 
     def test_dtps_duckiebot_components_use_dtps_publishers(self) -> None:
         """Use DTPS publishers for motors, lights, and state reset."""

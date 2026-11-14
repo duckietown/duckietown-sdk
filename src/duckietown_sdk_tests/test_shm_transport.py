@@ -43,6 +43,7 @@ from duckietown.sdk.middleware.dtps.components import (
     DTPSMotorsDriver,
     DTPSPoseDriver,
     DTPSResetFlagDriver,
+    DTPSResetPoseDriver,
     DTPSTimeOfFlightDriver,
     DTPSTwist,
     DTPSWheelEncoderDriver,
@@ -207,6 +208,7 @@ class ShmTransportTests(unittest.TestCase):
                 ("actuator", "wheels", "wheels", "pwm_filtered"),
             ),
             (DTPSResetFlagDriver, "", ("state", "reset")),
+            (DTPSResetPoseDriver, "", ("state", "reset_pose")),
             (DTPSWorldOutput, "", ("out",)),
         )
         if {case[0] for case in cases} != _declared_drivers(
