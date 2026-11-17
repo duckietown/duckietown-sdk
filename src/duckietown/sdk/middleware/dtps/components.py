@@ -213,7 +213,9 @@ class DTPSMotorsDriver(GenericDTPSPublisher, MotorsDriver):
             host=host,
             port=port,
             robot_name=robot_name,
-            topic=("actuator", "wheels", actuator_name, "pwm_filtered"),
+            # the wheels driver subscribes to `pwm`; `pwm_filtered` and `pwm_executed` are its outputs,
+            # what it applied after the emergency stop and the hardware limits were taken into account
+            topic=("actuator", "wheels", actuator_name, "pwm"),
             **kwargs,
         )
 
