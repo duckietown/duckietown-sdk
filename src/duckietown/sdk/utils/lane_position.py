@@ -44,20 +44,25 @@ class NotInLane(Exception):
 class MapInterpreter:
     """Interpret tile geometry from the Duckiematrix map components."""
 
-    def __init__(self, map: dict) -> None:
+    def __init__(
+        self, map: dict, *, tile_map_key: str = "map_0",
+    ) -> None:
         """Initialize the interpreter from the map components.
 
         Args:
             map: Frame, tile, and tile-info messages for the map.
+            tile_map_key: Complete runtime tile-map key, including any
+                environment namespace. Defaults to the legacy ``map_0``.
 
         """
         # Load YAML files
 
+        self.tile_map_key = tile_map_key
         self.frames_data = map["frames"]
         self.tiles_data = map["tiles"]
         self.tiles_maps_data = map["tile_info"]
         # Get tile size
-        self.road_tile_size = self.tiles_maps_data["data"]["map_0"][
+        self.road_tile_size = self.tiles_maps_data["data"][tile_map_key][
             "tile_size"
         ]["x"]
 
@@ -70,8 +75,10 @@ class MapInterpreter:
     def _process_tiles(self) -> None:
         """Process all tiles in the map and create the grid."""
         for tile_name, tile_info in self.tiles_data["data"].items():
+            tile_map_key, coords = tile_name.rsplit("/", 1)
+            if tile_map_key != self.tile_map_key:
+                continue
             # Extract grid coordinates from the tile name.
-            _, coords = tile_name.split("/")
             i, j = map(int, coords.split("_")[1:])
 
             # Get tile type and pose
