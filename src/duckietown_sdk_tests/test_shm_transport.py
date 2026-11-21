@@ -205,7 +205,7 @@ class ShmTransportTests(unittest.TestCase):
             (
                 DTPSMotorsDriver,
                 "wheels",
-                ("actuator", "wheels", "wheels", "pwm_filtered"),
+                ("actuator", "wheels", "wheels", "pwm"),
             ),
             (DTPSResetFlagDriver, "", ("state", "reset")),
             (DTPSResetPoseDriver, "", ("state", "reset_pose")),
